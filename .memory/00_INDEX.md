@@ -4,6 +4,7 @@
 
 ## Start Here
 - Read 01_PROJECT_CONTEXT to understand goals and architecture.
+- Use 01_PROJECT_CONTEXT/04_AGENT_GUIDE.md for documentation rules and templates.
 - Check 03_MANAGEMENT for current status and gaps.
 - Use 02_SERVICES for feature-level requirements and specs.
 

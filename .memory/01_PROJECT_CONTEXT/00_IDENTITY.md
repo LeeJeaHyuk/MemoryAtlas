@@ -1,7 +1,7 @@
 ﻿# Project Identity
 
 ## Name
-(TBD)
+MemoryAtlas
 
 ## One-Line Summary
 Describe the project in a single sentence.
