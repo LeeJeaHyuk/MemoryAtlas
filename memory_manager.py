@@ -3,13 +3,14 @@ import os
 import re
 import shutil
 
-CURRENT_VERSION = "1.3.0"
+CURRENT_VERSION = "1.7.0"
 ROOT_DIR = ".memory"
 
 DIRS = [
     "01_PROJECT_CONTEXT",
     "02_SERVICES",
-    "03_MANAGEMENT/tasks",
+    "03_MANAGEMENT/tasks/active",
+    "03_MANAGEMENT/tasks/archive",
     "90_TOOLING/scripts",
     "99_ARCHIVE",
 ]
@@ -41,7 +42,8 @@ DOC_TEMPLATES = {
 - 03_MANAGEMENT/STATUS.md
 - 03_MANAGEMENT/COMPONENTS.md
 - 03_MANAGEMENT/MISSING_COMPONENTS.md
-- 03_MANAGEMENT/tasks/
+- 03_MANAGEMENT/tasks/active/
+- 03_MANAGEMENT/tasks/archive/
 """,
     "01_PROJECT_CONTEXT/00_IDENTITY.md": """# Project Identity
 
@@ -202,6 +204,24 @@ class OutputDTO:
 ## 4. References
 List related documents here.
 ```
+
+## 5. Standard Workflows
+
+### Protocol A: Starting a New Task
+**User Command**: "Check memory, plan [Feature], and execute."
+**Agent Steps**:
+1. **Context Check**: Read `00_INDEX.md` and `STATUS.md`.
+2. **Doc Update**: Update/Create requirements in `02_SERVICES/`.
+3. **Task Creation**: Create a plan in `03_MANAGEMENT/tasks/active/` (following naming convention).
+4. **Execution**: Write code and tests.
+5. **Closure**: Move the task file to `archive/` and update `STATUS.md`.
+
+### Protocol B: Resuming a Task
+**User Command**: "Resume work on [Task_File]."
+**Agent Steps**:
+1. **Context Load**: Read the specific document in `tasks/active/`.
+2. **Execution**: Continue work based on the last log in that file.
+3. **Closure**: If finished, move to `archive/` and update `STATUS.md`.
 """,
     "02_SERVICES/README.md": """# Services Index
 
@@ -252,9 +272,49 @@ Record work by date. Keep entries short and factual.
 ## YYYY-MM-DD
 - (none)
 """,
-    "03_MANAGEMENT/tasks/README.md": """# Tasks
+    "03_MANAGEMENT/tasks/README.md": """# Task Management
 
-Use one file per task or sprint. Keep tasks small and actionable.
+## Workflow
+1. **Create**: New tasks go into `active/`.
+2. **Execute**: Work on the task, updating its status.
+3. **Archive**: When complete, move to `archive/YYYY-MM/`.
+
+## Naming Convention (MANDATORY)
+Files in `active/` and `archive/` MUST follow this format:
+`[YYYY-MM-DD]_[Type]_[ShortDescription].md`
+
+**Types**:
+- `FEAT`: New feature
+- `FIX`: Bug fix
+- `DOCS`: Documentation
+- `REFACTOR`: Code cleanup
+
+**Example**:
+- `2024-01-16_FEAT_UserLogin.md`
+- `2024-01-17_FIX_MemoryLeak.md`
+
+## Header Format
+Start every task file with:
+```markdown
+# [Task Title]
+> **Status**: [Active | Completed | OnHold]
+> **Owner**: [Agent Name]
+> **Date**: [YYYY-MM-DD]
+
+---
+```
+""",
+    "03_MANAGEMENT/tasks/active/README.md": """# Active Tasks
+
+Place currently active task definitions here.
+**MUST** follow the Naming Convention defined in `../README.md`.
+
+Example: `2024-01-16_FEAT_NewLogin.md`
+""",
+    "03_MANAGEMENT/tasks/archive/README.md": """# Archived Tasks
+
+Move completed tasks here.
+Recommended to organize by date (e.g., `2024-01/`) if volume is high.
 """,
 }
 
@@ -323,7 +383,10 @@ SYSTEM_TEMPLATES = {
 }
 
 MIGRATE_TEMPLATES = {
-    "00_INDEX.md": DOC_TEMPLATES["00_INDEX.md"],
+    "01_PROJECT_CONTEXT/04_AGENT_GUIDE.md": DOC_TEMPLATES["01_PROJECT_CONTEXT/04_AGENT_GUIDE.md"],
+    "03_MANAGEMENT/tasks/README.md": DOC_TEMPLATES["03_MANAGEMENT/tasks/README.md"],
+    "03_MANAGEMENT/tasks/active/README.md": DOC_TEMPLATES["03_MANAGEMENT/tasks/active/README.md"],
+    "03_MANAGEMENT/tasks/archive/README.md": DOC_TEMPLATES["03_MANAGEMENT/tasks/archive/README.md"],
 }
 
 REQUIRED_SYSTEM_FILES = [
@@ -390,7 +453,42 @@ def update_system_templates(root: str, dry_run: bool = False) -> None:
         print(f"  * Updated system file: {rel_path}")
 
 
+def migrate_tasks(root: str, dry_run: bool = False) -> None:
+    tasks_dir = os.path.join(root, "03_MANAGEMENT", "tasks")
+    if not os.path.isdir(tasks_dir):
+        return
+
+    # Files to ignore (reserved folders and README)
+    ignored = {"active", "archive", "README.md"}
+    legacy_files = []
+
+    for name in os.listdir(tasks_dir):
+        if name in ignored:
+            continue
+        path = os.path.join(tasks_dir, name)
+        if os.path.isfile(path) and name.endswith(".md"):
+            legacy_files.append(name)
+
+    if not legacy_files:
+        return
+
+    legacy_archive = os.path.join(tasks_dir, "archive", "legacy_migration")
+    os.makedirs(legacy_archive, exist_ok=True)
+
+    for name in legacy_files:
+        src = os.path.join(tasks_dir, name)
+        dest = os.path.join(legacy_archive, name)
+        if dry_run:
+            print(f"  - Would move legacy task: {name} -> archive/legacy_migration/")
+            continue
+        shutil.move(src, dest)
+        print(f"  * Moved legacy task: {name} -> archive/legacy_migration/")
+
+
 def smart_merge(root: str, dry_run: bool = False) -> None:
+    # 1. Migrate legacy tasks first
+    migrate_tasks(root, dry_run=dry_run)
+
     archive_dir = os.path.join(root, "99_ARCHIVE")
     os.makedirs(archive_dir, exist_ok=True)
 
