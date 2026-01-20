@@ -9,7 +9,11 @@
       "mcp__serena__replace_symbol_body",
       "mcp__serena__think_about_whether_you_are_done",
       "Bash(python -m py_compile:*)",
-      "mcp__serena__execute_shell_command"
+      "mcp__serena__execute_shell_command",
+      "Bash(python memory_manager.py:*)",
+      "Bash(py -3:*)",
+      "mcp__serena__think_about_task_adherence",
+      "mcp__serena__insert_before_symbol"
     ]
   }
 }

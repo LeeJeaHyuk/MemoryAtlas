@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 """
-MemoryAtlas v2.2.1 - Memory-Driven Development Tool
+MemoryAtlas v2.4.0 - Memory-Driven Development Tool (Context Bootstrapping)
 
 === VERSION HISTORY ===
 
 v2.0.0: Initial What-How-Log structure
 v2.1.0: Bug fixes, --doctor, template versioning
 v2.1.1: **ID**: as authority, three-way validation
-
-v2.2.1 (Current) - P0/P1 Fixes:
-  - Fixed header regex to support H1 (#) in addition to H2/H3
-  - Fixed Must-Read existence check to use regex instead of string contains
-  - Added ADR existence validation (no longer skipped)
-  - Expanded LINT_DIRS to include discussions and active RUNs
-  - Added 3-way ID consistency check for RUN documents
-  - Improved Must-Read parsing to return clean IDs (no links)
 
 v2.2.0 - Authority Separation & Execution Unit:
 1. REQ split into 3 layers: DECISION (authority) / DISCUSSION / RATIONALE
@@ -23,6 +15,45 @@ v2.2.0 - Authority Separation & Execution Unit:
 4. New folder structure: discussions/, rationale/
 5. Validation for Must-Read links
 6. RUN document format enforcement
+
+v2.2.1 - P0/P1 Fixes:
+  - Fixed header regex to support H1 (#) in addition to H2/H3
+  - Fixed Must-Read existence check to use regex instead of string contains
+  - Added ADR existence validation (no longer skipped)
+  - Expanded LINT_DIRS to include discussions and active RUNs
+  - Added 3-way ID consistency check for RUN documents
+  - Improved Must-Read parsing to return clean IDs (no links)
+
+v2.3.0 - Smart Spec Edition:
+  - CONVENTIONS rewritten with 6 core sections + Boundaries
+  - Added Commands section for explicit test/lint/run commands
+  - Added Boundaries (Always/Ask First/Never) for AI behavior control
+  - REQ template updated with optional Constraints & Boundaries section
+  - RUN template updated with Self-Check verification checklist
+  - AGENT_RULES updated to enforce Boundaries compliance
+  - Enhanced AI predictability through explicit behavioral rules
+
+v2.4.0 (Current) - Context Bootstrapping:
+  - Added --bootstrap mode for AI-driven project initialization
+  - BOOTSTRAP_PROMPT.md: AI kick-off meeting agenda
+  - Interactive project setup through LLM conversation
+  - Placeholder templates with [TODO: AI와 토의하여 결정] markers
+  - "LLM이 관리할 폴더를 LLM이 초기화" 철학 구현
+
+=== SMART SPEC MODEL ===
+
+6 Core Sections in CONVENTIONS:
+  1. Commands: Test, Lint, Run commands
+  2. Project Structure: Directory layout
+  3. Code Style: Formatting, naming conventions
+  4. Testing Strategy: Test requirements
+  5. Git Workflow: Branch/commit conventions
+  6. Boundaries: Always / Ask First / Never rules
+
+Boundaries (STRICT):
+  ✅ Always: Actions AI must always perform
+  ⚠️ Ask First: Actions requiring human approval
+  🚫 Never: Actions AI must never perform
 
 === AUTHORITY MODEL ===
 
@@ -45,7 +76,7 @@ v2.2.0 - Authority Separation & Execution Unit:
 실행 문서 구조:
 - Input: 읽을 문서 ID 목록 (P0 + Must-Read)
 - Steps: 명령/행동
-- Verification: 성공 조건
+- Verification: 성공 조건 + Self-Check
 - Output: 생성/수정 파일 목록
 """
 
@@ -59,12 +90,12 @@ import sys
 from datetime import datetime
 from typing import Optional
 
-CURRENT_VERSION = "2.2.1"
+CURRENT_VERSION = "2.4.0"
 ROOT_DIR = ".memory"
-TEMPLATE_VERSION = "2.2"  # Template schema version
+TEMPLATE_VERSION = "2.4"  # Template schema version (Context Bootstrapping)
 
 # ============================================================================
-# STRUCTURE (v2.2) - Authority Separation
+# STRUCTURE (v2.3) - Smart Spec Edition
 # ============================================================================
 # .memory/
 # ├── 00_SYSTEM/                  # 시스템 관리 (시스템만 수정)
@@ -178,7 +209,7 @@ RUN_OUTPUT_RE = re.compile(r"^#{2,3}\s*Output", re.M)
 CHECKBOX_RE = re.compile(r"^\s*-\s*\[[ xX]\]", re.M)
 
 # ============================================================================
-# DOC TEMPLATES (v2.2)
+# DOC TEMPLATES (v2.3) - Smart Spec Edition
 # ============================================================================
 DOC_TEMPLATES = {
     # =========================================================================
@@ -187,27 +218,31 @@ DOC_TEMPLATES = {
     "00_INDEX.md": f"""# Project Memory Index
 
 > Entry point for Memory-Driven Development in this repo.
-> **Version**: {CURRENT_VERSION} (Authority Separation + Execution Unit)
+> **Version**: {CURRENT_VERSION} (Smart Spec Edition)
 > **Template Version**: {TEMPLATE_VERSION}
 
-## Authority Model
+## Smart Spec Model (v2.3)
 
 ```
-권위의 흐름 (Authority Flow):
-  REQ (Authority) → TECH_SPEC → CODE → RUN/LOG
+6 Core Sections in CONVENTIONS:
+  1. Commands      - Test, Lint, Run 명령어
+  2. Structure     - 프로젝트 디렉토리 구조
+  3. Code Style    - 포맷팅, 네이밍 규칙
+  4. Testing       - 테스트 전략
+  5. Git Workflow  - 브랜치/커밋 규칙
+  6. Boundaries    - Always / Ask First / Never 규칙 ⭐
 
-문서 등급 (Document Grades):
-  - DECISION: 최종 결정만 (REQ-*, RULE-*)
-  - DISCUSSION: 조율 기록 (DISC-*)
-  - RATIONALE: 결정 근거 (ADR-*)
-  - EXECUTION: 작업 단위 (RUN-*)
+Boundaries (STRICT):
+  ✅ Always    - AI가 항상 수행해야 하는 행동
+  ⚠️ Ask First - 사람 승인 후 진행
+  🚫 Never     - AI가 절대 수행하면 안 되는 행동
 ```
 
 ## Quick Navigation
 
 | Folder | Purpose | Authority Level |
 |--------|---------|-----------------|
-| `01_PROJECT_CONTEXT/` | 프로젝트 헌법 | Constitution |
+| `01_PROJECT_CONTEXT/` | 프로젝트 헌법 + **Boundaries** | Constitution |
 | `02_REQUIREMENTS/features/` | 기능 **결정** (DECISION) | Authority |
 | `02_REQUIREMENTS/business_rules/` | 규칙 **결정** (DECISION) | Authority |
 | `02_REQUIREMENTS/discussions/` | 조율 기록 (DISCUSSION) | Reference |
@@ -218,10 +253,18 @@ DOC_TEMPLATES = {
 ## Start Here (For AI Agents)
 
 ### Reading Priority (P0 = Must Read)
-1. **P0**: `01_PROJECT_CONTEXT/01_CONVENTIONS.md`
+1. **P0**: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **특히 Boundaries 섹션** ⭐
 2. **P0**: Target REQ's `**Must-Read**` field
 3. **P1**: `02_REQUIREMENTS/business_rules/` (all active)
 4. **P2**: `98_KNOWLEDGE/` (if complex feature)
+
+### Execution Checklist
+1. [ ] CONVENTIONS의 **Boundaries** 확인
+2. [ ] Target REQ 읽기
+3. [ ] Must-Read 문서 읽기
+4. [ ] RUN 문서 작성 (Self-Check 포함)
+5. [ ] 구현 → 테스트 → 검증
+6. [ ] Self-Check 통과 후 RUN 완료 처리
 
 ### What NOT to Read by Default
 - `02_REQUIREMENTS/discussions/` - Only when explicitly referenced
@@ -232,7 +275,7 @@ DOC_TEMPLATES = {
 
 ### 01_PROJECT_CONTEXT (프로젝트 헌법)
 - [00_GOALS.md](01_PROJECT_CONTEXT/00_GOALS.md) - 프로젝트 목표
-- [01_CONVENTIONS.md](01_PROJECT_CONTEXT/01_CONVENTIONS.md) - 코딩 규칙
+- [01_CONVENTIONS.md](01_PROJECT_CONTEXT/01_CONVENTIONS.md) - 코딩 규칙 + **Boundaries** ⭐
 
 ### 02_REQUIREMENTS (요구사항)
 - [features/](02_REQUIREMENTS/features/) - 기능 **결정** (Authority)
@@ -245,7 +288,7 @@ DOC_TEMPLATES = {
 - [decisions/](03_TECH_SPECS/decisions/) - ADR (RATIONALE)
 
 ### 04_TASK_LOGS (작업 기록)
-- [active/](04_TASK_LOGS/active/) - 실행 중 (RUN-*)
+- [active/](04_TASK_LOGS/active/) - 실행 중 (RUN-*) + **Self-Check**
 - [archive/](04_TASK_LOGS/archive/) - 완료된 작업
 
 ### 98_KNOWLEDGE (지식 저장소)
@@ -310,7 +353,7 @@ DOC_TEMPLATES = {
 | Phase 3 | Hardening | TBD | Not Started |
 """,
 
-    "01_PROJECT_CONTEXT/01_CONVENTIONS.md": f"""# Coding Conventions & Rules
+    "01_PROJECT_CONTEXT/01_CONVENTIONS.md": f"""# Coding Conventions & Rules (Smart Spec)
 
 > **ID**: CTX-CONV-001
 > **Last Updated**: (TBD)
@@ -318,45 +361,85 @@ DOC_TEMPLATES = {
 
 ---
 
-## 1. Naming Conventions
+## 1. Commands (실행 명령어)
 
-### Variables & Functions
-- Style: `snake_case`
-- Example: `user_name`, `get_user_data()`
+> AI가 테스트, 린트, 실행 시 사용할 명령어를 명시합니다.
 
-### Classes
-- Style: `PascalCase`
-- Example: `UserManager`, `DataProcessor`
-
-### Constants
-- Style: `UPPER_SNAKE_CASE`
-- Example: `MAX_RETRY_COUNT`, `DEFAULT_TIMEOUT`
-
-### Files & Directories
-- Style: `lowercase_with_underscores`
-- Example: `user_service.py`, `data_models/`
+| Action | Command | Description |
+|--------|---------|-------------|
+| **Test** | `pytest` | Run all unit tests |
+| **Test (specific)** | `pytest tests/test_<name>.py` | Run specific test file |
+| **Lint** | `ruff check .` | Check code style |
+| **Format** | `ruff format .` | Auto-format code |
+| **Run** | `python main.py` | Run the application |
+| **Build** | `(TBD)` | Build for production |
 
 ---
 
-## 2. Code Style
+## 2. Project Structure (프로젝트 구조)
+
+```
+project_root/
+├── src/                    # 소스 코드 (비즈니스 로직)
+│   ├── __init__.py
+│   └── (modules)/
+├── tests/                  # 테스트 코드 (src와 1:1 대응)
+│   ├── __init__.py
+│   └── test_*.py
+├── .memory/                # 프로젝트 문서 (MemoryAtlas)
+├── requirements.txt        # Python 의존성
+└── README.md               # 프로젝트 소개
+```
+
+---
+
+## 3. Code Style (코드 스타일)
 
 ### Python
-- Formatter: `black`
-- Linter: `ruff` or `flake8`
-- Type hints: Required for public functions
-- Docstrings: Google style
+- **Formatter**: `ruff format` (or `black`)
+- **Linter**: `ruff check` (or `flake8`)
+- **Type Hints**: Required for all public functions
+- **Docstrings**: Google style (복잡한 함수만)
 
-### JavaScript/TypeScript
-- Formatter: `prettier`
-- Linter: `eslint`
+### Naming Conventions
+| Type | Style | Example |
+|------|-------|---------|
+| Variables/Functions | `snake_case` | `user_name`, `get_data()` |
+| Classes | `PascalCase` | `UserManager` |
+| Constants | `UPPER_SNAKE_CASE` | `MAX_RETRY` |
+| Files | `lowercase_underscores` | `user_service.py` |
+
+### Comments
+- 복잡한 로직에만 **"Why"**를 적는다
+- 명백한 코드에 주석 금지
+- TODO: `# TODO(author): description`
 
 ---
 
-## 3. Git Conventions
+## 4. Testing Strategy (테스트 전략)
+
+### Requirements
+- 모든 기능(`REQ`)은 최소 1개의 테스트 파일을 가져야 함
+- 테스트 파일명: `test_<module_name>.py`
+- 테스트 함수명: `test_<behavior>_<expected_result>()`
+
+### TDD Workflow (권장)
+1. `RUN` 문서 작성 시 테스트 케이스 먼저 정의
+2. 실패하는 테스트 작성
+3. 테스트 통과하는 최소 코드 작성
+4. 리팩토링
+
+### Coverage
+- 목표: (예: 80% 이상)
+- 핵심 비즈니스 로직: 100%
+
+---
+
+## 5. Git Workflow (Git 규칙)
 
 ### Branch Naming
-- Feature: `feature/short-description`
-- Bugfix: `fix/issue-description`
+- Feature: `feat/REQ-ID-short-desc` (예: `feat/REQ-AUTH-001-login`)
+- Bugfix: `fix/issue-id-desc`
 - Hotfix: `hotfix/critical-fix`
 
 ### Commit Messages
@@ -365,38 +448,72 @@ DOC_TEMPLATES = {
 
 <body>
 ```
-- Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+- **Types**: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+- **Example**: `feat(auth): add JWT token validation`
+
+### PR Rules
+- 1 PR = 1 REQ (가능한 경우)
+- Self-review 후 요청
+- CI 통과 필수
 
 ---
 
-## 4. Universal Constraints
+## 6. Boundaries (경계 - STRICT)
 
-### Performance
-- (예: 응답 시간은 1초 이내)
+> AI 에이전트가 반드시 따라야 할 행동 규칙입니다.
+> 이 섹션은 프로젝트의 **안전장치**입니다.
 
-### Data
-- (예: 모든 시간은 UTC로 저장)
+### ✅ Always (항상 수행)
 
-### Security
-- (예: 비밀번호는 bcrypt로 해싱)
+다음은 AI가 **항상** 수행해야 하는 행동입니다:
+
+- [ ] `RUN` 문서 종료 전 **테스트 통과** 확인
+- [ ] 모든 퍼블릭 함수에 **Type Hint** 추가
+- [ ] 기존 코드 수정 시 **기존 테스트 통과** 확인
+- [ ] 새 기능 추가 시 **REQ 문서 참조** 확인
+
+### ⚠️ Ask First (사전 승인 필요)
+
+다음 작업은 **사람의 승인 후** 진행합니다:
+
+- [ ] `requirements.txt` 등 **의존성 추가/삭제**
+- [ ] `.memory/00_SYSTEM/` 내부 파일 수정
+- [ ] **DB 스키마 변경** (migration 등)
+- [ ] **API 엔드포인트 삭제/변경**
+- [ ] 설정 파일 (`.env`, `config.*`) 구조 변경
+- [ ] 외부 서비스 연동 추가
+
+### 🚫 Never (절대 금지)
+
+다음은 AI가 **절대** 수행하면 안 되는 행동입니다:
+
+- **Secret 커밋 금지**: API Key, Password, Token 등을 코드에 커밋하지 않음
+- **하드코딩 금지**: 프로덕션 데이터, 테스트용 mock 데이터를 프로덕션 코드에 하드코딩하지 않음
+- **물리적 삭제 금지**: 사용자 데이터를 물리적으로 삭제하지 않음 (Soft Delete 사용)
+- **Force Push 금지**: `main`/`master` 브랜치에 force push 금지
+- **테스트 스킵 금지**: 실패하는 테스트를 `@skip`으로 무시하지 않음
 
 ---
 
-## 5. Documentation Rules
+## 7. AI Agent Quick Reference
 
-### Required for Every Feature
-- [ ] REQ document in `02_REQUIREMENTS/features/`
-- [ ] API spec in `03_TECH_SPECS/api_specs/`
-- [ ] Test coverage
+### Reading Priority (P0 = Must Read)
+1. **P0**: 이 파일 (`01_CONVENTIONS.md`)
+2. **P0**: Target REQ의 `**Must-Read**` 필드
+3. **P1**: `02_REQUIREMENTS/business_rules/` (전체)
+4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
 
-### AI Agent Instructions
-- **P0**: Always read this file first
-- **P0**: Check `**Must-Read**` in target REQ
-- **P1**: Read all active business rules
+### Execution Checklist
+1. [ ] CONVENTIONS의 Boundaries 확인
+2. [ ] Target REQ 읽기
+3. [ ] Must-Read 문서 읽기
+4. [ ] RUN 문서 작성 (Self-Check 포함)
+5. [ ] 구현 → 테스트 → 검증
+6. [ ] RUN 문서 완료 처리
 """,
 
     # =========================================================================
-    # 02_REQUIREMENTS (v2.2 - Authority Separation)
+    # 02_REQUIREMENTS (v2.3 - Smart Spec Edition)
     # =========================================================================
     "02_REQUIREMENTS/README.md": f"""# Requirements (Authority Layer)
 
@@ -405,14 +522,19 @@ DOC_TEMPLATES = {
 > 이 폴더는 **"무엇을 만들 것인가?"**의 **최종 결정**을 저장합니다.
 > 논의/조율 기록은 `discussions/`에 분리합니다.
 
-## Authority Model (v2.2)
+## Authority Model (v2.3)
 
 ```
 문서 등급:
 ├── features/        → DECISION (Authority) - 최종 결정만
+│                      + Constraints & Boundaries (Optional)
 ├── business_rules/  → DECISION (Authority) - 최종 결정만
 └── discussions/     → DISCUSSION (Reference) - 조율 기록
 ```
+
+### Smart Spec Integration (v2.3)
+- **Boundaries**: 프로젝트 전역 규칙은 `01_CONVENTIONS.md`의 Boundaries 섹션
+- **Constraints**: 기능별 추가 제약은 각 REQ의 `Constraints & Boundaries` 섹션 (Optional)
 
 ### Why Separate?
 - **DECISION (features/, business_rules/)**: LLM이 반드시 읽어야 함
@@ -495,6 +617,17 @@ DOC_TEMPLATES = {
 - [ ] Criterion 1
 - [ ] Criterion 2
 
+## Constraints & Boundaries (Optional)
+
+> 이 기능 구현 시 적용되는 특별한 제약.
+> 프로젝트 전역 Boundaries(`01_CONVENTIONS.md`)를 넘어서는 경우만 작성.
+
+### ⚠️ Ask First
+- (이 기능에서 사람 승인이 필요한 것)
+
+### 🚫 Never
+- (이 기능에서 절대 금지)
+
 ## Related
 
 - Discussion: [DISC-XXX-001](../discussions/DISC-XXX-001.md)
@@ -507,6 +640,7 @@ DOC_TEMPLATES = {
 2. **짧게 유지**: 한 REQ = 하나의 명확한 결정
 3. **Must-Read 필수**: RULE/ADR ID만, 링크 텍스트는 ID
 4. **ID 일치**: 파일명 = **ID**: = 헤더 [ID]
+5. **Boundaries 선택적**: 프로젝트 전역 규칙 외 추가 제약 시만 작성
 """,
 
     "02_REQUIREMENTS/business_rules/README.md": f"""# Business Rules (DECISION)
@@ -817,7 +951,7 @@ Examples:
 > **Status**: [Active | Blocked | Done]
 > **Started**: YYYY-MM-DD
 > **Input**: REQ-XXX-001, RULE-YYY-001, 01_CONVENTIONS.md
-> **Verification**: (성공 조건)
+> **Verification**: (성공 조건 - 한 줄 요약)
 > **Template-Version**: {TEMPLATE_VERSION}
 
 ---
@@ -831,6 +965,17 @@ Examples:
 1. [ ] Step 1
 2. [ ] Step 2
 
+## Verification (Self-Check)
+
+> 작업 완료 전 반드시 확인하는 체크리스트
+
+- [ ] **Test**: `pytest tests/test_xxx.py` 통과?
+- [ ] **Boundary**: Secret 커밋 없음? (`01_CONVENTIONS.md` Boundaries 준수?)
+- [ ] **Spec**: 구현이 `REQ-XXX-001`과 일치?
+
+### Success Condition
+(성공 조건 상세)
+
 ## Output
 
 (생성/수정된 파일 목록)
@@ -843,8 +988,9 @@ Examples:
 
 1. **1 RUN = 1 목적**: 여러 목적을 섞지 않음
 2. **Input 명시**: 읽어야 할 문서 ID 목록 (Must-Read 포함)
-3. **Verification 명시**: 성공 조건
+3. **Verification 명시**: 성공 조건 + Self-Check 체크리스트
 4. **Output 기록**: 생성/수정 파일 목록
+5. **Self-Check 필수**: 테스트, Boundary, Spec 일치 확인
 """,
 
     "04_TASK_LOGS/archive/README.md": f"""# Archived Tasks
@@ -950,16 +1096,316 @@ archive/
 }
 
 # ============================================================================
+# BOOTSTRAP TEMPLATES (v2.4 - Context Bootstrapping)
+# ============================================================================
+BOOTSTRAP_PROMPT_TEMPLATE = f"""# 🚀 프로젝트 킥오프 (Context Bootstrapping)
+
+> **MemoryAtlas v{CURRENT_VERSION}**
+>
+> 이 파일을 AI 에이전트(Claude, GPT 등)에게 전달하세요.
+> AI가 아래 주제로 인터뷰 후, 프로젝트 헌법을 완성합니다.
+
+---
+
+## 사용 방법
+
+1. 이 파일 내용을 AI 채팅창에 복사하거나, AI에게 이 파일을 읽게 하세요.
+2. AI가 아래 아젠다에 따라 질문합니다.
+3. 대화가 끝나면 AI가 완성된 문서를 출력합니다.
+4. 출력된 내용을 해당 파일에 저장하세요.
+5. `python memory_manager.py --doctor`로 검증하세요.
+
+---
+
+## 🎯 토의 아젠다 (AI에게 전달할 내용)
+
+### 1. Project Identity (프로젝트 정체성)
+
+나에게 다음을 질문해주세요:
+- 프로젝트 이름은 무엇인가요?
+- 한 문장으로 설명하면?
+- 주요 사용자는 누구인가요?
+- 핵심 가치/목표는 무엇인가요?
+
+### 2. Tech Stack (기술 스택)
+
+나에게 다음을 질문해주세요:
+- 프로그래밍 언어는? (Python, TypeScript, Go 등)
+- 프레임워크는? (FastAPI, Django, React, Next.js 등)
+- 테스트 도구는? (pytest, jest, vitest 등)
+- 린터/포매터는? (ruff, black, eslint, prettier 등)
+- 빌드/배포 도구는?
+
+### 3. Smart Spec Boundaries (경계 설정) ⭐
+
+**가장 중요합니다.** 나에게 다음을 질문해주세요:
+
+#### ✅ Always (AI가 항상 해야 할 것)
+- 테스트 관련 규칙은?
+- 코드 품질 관련 규칙은?
+- 문서화 관련 규칙은?
+
+#### ⚠️ Ask First (사전 승인 필요)
+- 어떤 변경에 대해 먼저 물어봐야 하나요?
+- 의존성 추가/삭제는 어떻게?
+- DB나 API 변경은?
+
+#### 🚫 Never (절대 금지)
+- 이 프로젝트에서 절대 하면 안 되는 것은?
+- 보안 관련 금지 사항은?
+- 데이터 관련 금지 사항은?
+
+### 4. Project Structure (프로젝트 구조)
+
+나에게 다음을 질문해주세요:
+- 소스 코드 폴더 구조는?
+- 테스트 폴더 구조는?
+- 설정 파일들은 어디에?
+
+### 5. Git Workflow (Git 규칙)
+
+나에게 다음을 질문해주세요:
+- 브랜치 네이밍 규칙은?
+- 커밋 메시지 형식은?
+- PR 규칙은?
+
+---
+
+## 📋 AI에게 지시
+
+위 아젠다에 따라 나를 인터뷰한 후, **다음 2개 파일을 완성된 형태로 출력**해주세요:
+
+1. **`01_PROJECT_CONTEXT/00_GOALS.md`**
+   - 프로젝트 정체성, 목표, 범위
+
+2. **`01_PROJECT_CONTEXT/01_CONVENTIONS.md`**
+   - Commands 테이블 (실제 명령어로 채움)
+   - Project Structure (실제 구조로 채움)
+   - Code Style (실제 도구와 규칙으로 채움)
+   - Testing Strategy (실제 전략으로 채움)
+   - Git Workflow (실제 규칙으로 채움)
+   - **Boundaries** (인터뷰 결과로 채움) ⭐
+
+---
+
+## ⚠️ 주의사항
+
+- 기본 템플릿의 예시가 아닌, **실제 프로젝트에 맞는 내용**으로 채워주세요.
+- Boundaries는 프로젝트 특성에 맞게 구체적으로 작성해주세요.
+- 불확실한 부분은 `[TODO: 확정 필요]`로 표시해주세요.
+
+---
+
+## 완료 후
+
+1. AI가 출력한 내용을 각 파일에 저장
+2. `python memory_manager.py --doctor` 실행하여 검증
+3. 이 파일(`BOOTSTRAP_PROMPT.md`)은 삭제하거나 `99_ARCHIVE/`로 이동
+"""
+
+BOOTSTRAP_CONVENTIONS_TEMPLATE = f"""# Coding Conventions & Rules (Smart Spec)
+
+> **ID**: CTX-CONV-001
+> **Last Updated**: [TODO: AI와 토의하여 결정]
+> **Template-Version**: {TEMPLATE_VERSION}
+
+---
+
+## 1. Commands (실행 명령어)
+
+> [TODO: AI와 토의하여 결정]
+
+| Action | Command | Description |
+|--------|---------|-------------|
+| **Test** | `[TODO]` | Run all unit tests |
+| **Test (specific)** | `[TODO]` | Run specific test file |
+| **Lint** | `[TODO]` | Check code style |
+| **Format** | `[TODO]` | Auto-format code |
+| **Run** | `[TODO]` | Run the application |
+| **Build** | `[TODO]` | Build for production |
+
+---
+
+## 2. Project Structure (프로젝트 구조)
+
+> [TODO: AI와 토의하여 결정]
+
+```
+project_root/
+├── [TODO]/              # 소스 코드
+├── [TODO]/              # 테스트 코드
+├── .memory/             # 프로젝트 문서 (MemoryAtlas)
+└── [TODO]               # 기타 파일들
+```
+
+---
+
+## 3. Code Style (코드 스타일)
+
+> [TODO: AI와 토의하여 결정]
+
+### [Language]
+- **Formatter**: `[TODO]`
+- **Linter**: `[TODO]`
+- **Type Hints**: [TODO]
+- **Docstrings**: [TODO]
+
+### Naming Conventions
+| Type | Style | Example |
+|------|-------|---------|
+| Variables/Functions | `[TODO]` | |
+| Classes | `[TODO]` | |
+| Constants | `[TODO]` | |
+| Files | `[TODO]` | |
+
+---
+
+## 4. Testing Strategy (테스트 전략)
+
+> [TODO: AI와 토의하여 결정]
+
+### Requirements
+- [TODO]
+
+### Coverage
+- 목표: [TODO]
+
+---
+
+## 5. Git Workflow (Git 규칙)
+
+> [TODO: AI와 토의하여 결정]
+
+### Branch Naming
+- Feature: `[TODO]`
+- Bugfix: `[TODO]`
+
+### Commit Messages
+- Format: `[TODO]`
+
+---
+
+## 6. Boundaries (경계 - STRICT)
+
+> [TODO: AI와 토의하여 결정] ⭐
+> AI 에이전트가 반드시 따라야 할 행동 규칙입니다.
+
+### ✅ Always (항상 수행)
+
+- [ ] [TODO: AI와 토의하여 결정]
+
+### ⚠️ Ask First (사전 승인 필요)
+
+- [ ] [TODO: AI와 토의하여 결정]
+
+### 🚫 Never (절대 금지)
+
+- [TODO: AI와 토의하여 결정]
+
+---
+
+## 7. AI Agent Quick Reference
+
+### Reading Priority (P0 = Must Read)
+1. **P0**: 이 파일 (`01_CONVENTIONS.md`)
+2. **P0**: Target REQ의 `**Must-Read**` 필드
+3. **P1**: `02_REQUIREMENTS/business_rules/` (전체)
+4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
+
+### Execution Checklist
+1. [ ] CONVENTIONS의 Boundaries 확인
+2. [ ] Target REQ 읽기
+3. [ ] Must-Read 문서 읽기
+4. [ ] RUN 문서 작성 (Self-Check 포함)
+5. [ ] 구현 → 테스트 → 검증
+6. [ ] RUN 문서 완료 처리
+"""
+
+BOOTSTRAP_GOALS_TEMPLATE = f"""# Project Goals
+
+> **ID**: CTX-GOALS-001
+> **Last Updated**: [TODO: AI와 토의하여 결정]
+> **Template-Version**: {TEMPLATE_VERSION}
+
+---
+
+## 1. Project Identity
+
+### Name
+[TODO: AI와 토의하여 결정]
+
+### One-Line Summary
+[TODO: AI와 토의하여 결정]
+
+### Core Value
+[TODO: AI와 토의하여 결정]
+
+---
+
+## 2. Target Users
+
+- **Primary**: [TODO: AI와 토의하여 결정]
+- **Secondary**: [TODO: AI와 토의하여 결정]
+
+---
+
+## 3. Success Criteria
+
+- [ ] [TODO: AI와 토의하여 결정]
+
+---
+
+## 4. Scope
+
+### In-Scope
+- [TODO: AI와 토의하여 결정]
+
+### Out-of-Scope
+- [TODO: AI와 토의하여 결정]
+
+---
+
+## 5. Milestones
+
+| Phase | Description | Target Date | Status |
+|-------|-------------|-------------|--------|
+| Phase 1 | [TODO] | [TODO] | Not Started |
+"""
+
+BOOTSTRAP_TEMPLATES = {
+    "BOOTSTRAP_PROMPT.md": BOOTSTRAP_PROMPT_TEMPLATE,
+}
+
+# ============================================================================
 # SYSTEM TEMPLATES
 # ============================================================================
-AGENT_RULES_TEMPLATE = f"""# MemoryAtlas Agent Rules (v{CURRENT_VERSION})
+AGENT_RULES_TEMPLATE = f"""# MemoryAtlas Agent Rules (v{CURRENT_VERSION}) - Smart Spec Edition
 
 > **SYSTEM FILE**: Managed by `memory_manager.py`. DO NOT EDIT.
 > **For custom rules**: Use `01_PROJECT_CONTEXT/01_CONVENTIONS.md`.
 
 ---
 
-## 1. Authority Model
+## 1. Smart Spec Model
+
+```
+6 Core Sections in CONVENTIONS:
+  1. Commands: Test, Lint, Run 명령어
+  2. Project Structure: 디렉토리 구조
+  3. Code Style: 포맷팅, 네이밍 규칙
+  4. Testing Strategy: 테스트 요구사항
+  5. Git Workflow: 브랜치/커밋 규칙
+  6. Boundaries: Always / Ask First / Never 규칙
+
+Boundaries (STRICT):
+  ✅ Always: AI가 항상 수행해야 하는 행동
+  ⚠️ Ask First: 사람 승인 후 진행
+  🚫 Never: AI가 절대 수행하면 안 되는 행동
+```
+
+---
+
+## 2. Authority Model
 
 ```
 권위의 흐름 (Authority Flow):
@@ -974,10 +1420,10 @@ AGENT_RULES_TEMPLATE = f"""# MemoryAtlas Agent Rules (v{CURRENT_VERSION})
 
 ---
 
-## 2. Reading Priority
+## 3. Reading Priority
 
 ### P0 (Always Read)
-1. `01_PROJECT_CONTEXT/01_CONVENTIONS.md`
+1. `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **특히 Boundaries 섹션**
 2. Target REQ's `**Must-Read**` field
 3. All referenced RULE-* documents
 
@@ -992,22 +1438,47 @@ AGENT_RULES_TEMPLATE = f"""# MemoryAtlas Agent Rules (v{CURRENT_VERSION})
 
 ---
 
-## 3. Writing Rules
+## 4. Boundaries Compliance (STRICT)
+
+### ✅ Always (항상 수행)
+- RUN 문서 종료 전 **테스트 통과** 확인
+- 모든 퍼블릭 함수에 **Type Hint** 추가
+- 기존 코드 수정 시 **기존 테스트 통과** 확인
+- 새 기능 추가 시 **REQ 문서 참조** 확인
+
+### ⚠️ Ask First (사전 승인 필요)
+- `requirements.txt` 등 **의존성 추가/삭제**
+- `.memory/00_SYSTEM/` 내부 파일 수정
+- **DB 스키마 변경** (migration 등)
+- **API 엔드포인트 삭제/변경**
+- 설정 파일 구조 변경
+
+### 🚫 Never (절대 금지)
+- **Secret 커밋 금지**: API Key, Password, Token 등
+- **하드코딩 금지**: 프로덕션 데이터, mock 데이터
+- **물리적 삭제 금지**: Soft Delete 사용
+- **Force Push 금지**: main/master 브랜치
+- **테스트 스킵 금지**: @skip으로 무시하지 않음
+
+---
+
+## 5. Writing Rules
 
 ### REQ/RULE Documents (Authority)
 - **결정만 적는다**: 논의/대안은 discussions/에
 - **짧게 유지**: 한 REQ = 하나의 명확한 결정
-- **Must-Read ??**: RULE/ADR ID?, ?? ???? ID
+- **Must-Read 필수**: RULE/ADR ID만, 링크 텍스트는 ID
+- **Constraints 선택적**: 기능별 추가 제약 시만 작성
 
 ### RUN Documents (Execution)
 - **1 RUN = 1 목적**: 여러 목적을 섞지 않음
 - **Input 명시**: 읽어야 할 문서 ID 목록
-- **Verification 명시**: 성공 조건
+- **Verification 명시**: 성공 조건 + Self-Check
 - **Output 기록**: 생성/수정 파일 목록
 
 ---
 
-## 4. Validation Requirements
+## 6. Validation Requirements
 
 ### Three-Way ID Consistency
 - `**ID**:` metadata (Authority)
@@ -1020,22 +1491,28 @@ All three must match.
 - Must-Read allows only RULE/ADR IDs (CTX is P0 and excluded)
 - Link text must be the ID if markdown links are used
 - All documents in `**Must-Read**` must exist
-- All must be read before implementation
 
 ---
 
-## 5. Workflow
+## 7. Workflow
 
 ### Starting a Task
-1. Read P0 documents
+1. Read P0 documents (**CONVENTIONS의 Boundaries 확인**)
 2. Read target REQ and its Must-Read
-3. Create RUN-* document in `04_TASK_LOGS/active/`
-4. Implement in small steps
+3. Check REQ's Constraints & Boundaries (있는 경우)
+4. Create RUN-* document in `04_TASK_LOGS/active/`
+5. Implement in small steps
+
+### Before Completing a Step (Self-Check)
+- [ ] **Test**: 테스트 통과?
+- [ ] **Boundary**: CONVENTIONS Boundaries 준수?
+- [ ] **Spec**: REQ와 일치?
 
 ### Completing a Step
-1. Mark RUN as Done
-2. Move to `04_TASK_LOGS/archive/YYYY-MM/`
-3. Create next step if needed
+1. Self-Check 완료 확인
+2. Mark RUN as Done
+3. Move to `04_TASK_LOGS/archive/YYYY-MM/`
+4. Create next step if needed
 
 ### When Discussion Needed
 1. Create DISC-* in `02_REQUIREMENTS/discussions/`
@@ -1232,6 +1709,55 @@ def is_v1_structure(root: str) -> bool:
         os.path.join(root, "90_TOOLING"),
     ]
     return any(os.path.exists(m) for m in v1_markers)
+
+
+
+def bootstrap_init(dry_run: bool = False) -> None:
+    """Create Bootstrap files for AI-driven project initialization.
+    
+    Context Bootstrapping (v2.4): AI가 사용자와 인터뷰를 통해
+    프로젝트 헌법(CONVENTIONS, GOALS)을 작성하도록 유도하는 기능.
+    
+    Creates:
+        - BOOTSTRAP_PROMPT.md: AI 킥오프 미팅 아젠다
+        - 01_CONTEXT/CONVENTIONS.md: [TODO] 템플릿 (AI가 채움)
+        - 01_CONTEXT/GOALS.md: [TODO] 템플릿 (AI가 채움)
+    """
+    bootstrap_dir = Path(ROOT_DIR)
+    context_dir = bootstrap_dir / "01_CONTEXT"
+    
+    # Ensure base structure exists
+    bootstrap_dir.mkdir(exist_ok=True)
+    context_dir.mkdir(exist_ok=True)
+    
+    files_to_create = {
+        bootstrap_dir / "BOOTSTRAP_PROMPT.md": BOOTSTRAP_PROMPT_TEMPLATE,
+        context_dir / "CONVENTIONS.md": BOOTSTRAP_CONVENTIONS_TEMPLATE,
+        context_dir / "GOALS.md": BOOTSTRAP_GOALS_TEMPLATE,
+    }
+    
+    print("\n" + "=" * 60)
+    print("🚀 Context Bootstrapping (v2.4)")
+    print("=" * 60)
+    
+    for filepath, content in files_to_create.items():
+        if filepath.exists():
+            print(f"  [SKIP] {filepath} (already exists)")
+            continue
+        
+        if dry_run:
+            print(f"  [DRY-RUN] Would create: {filepath}")
+        else:
+            filepath.write_text(content, encoding="utf-8")
+            print(f"  [CREATE] {filepath}")
+    
+    print("\n" + "-" * 60)
+    print("📋 다음 단계:")
+    print("   1. BOOTSTRAP_PROMPT.md를 AI 에이전트에게 전달하세요")
+    print("   2. AI가 질문하면 프로젝트에 맞게 답변하세요")
+    print("   3. AI가 CONVENTIONS.md와 GOALS.md를 완성합니다")
+    print("   4. 완료 후 `python memory_manager.py --update`로 나머지 구조 생성")
+    print("-" * 60 + "\n")
 
 
 def init_or_update(dry_run: bool = False, force_migrate: bool = False) -> None:
@@ -1924,6 +2450,11 @@ Examples:
         action="store_true",
         help="Run init/update even when using checks.",
     )
+    update_group.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help="Create BOOTSTRAP_PROMPT.md for AI-driven project initialization (Context Bootstrapping).",
+    )
 
     check_group = parser.add_argument_group("Check Commands")
     check_group.add_argument(
@@ -1987,6 +2518,11 @@ Examples:
 
 def main() -> int:
     args = parse_args()
+
+    # Bootstrap mode: create AI kick-off meeting files and exit
+    if args.bootstrap:
+        bootstrap_init(dry_run=args.dry_run)
+        return 0
 
     run_checks = any([
         args.doctor, args.check, args.lint, args.links, args.req, args.runs, args.status
