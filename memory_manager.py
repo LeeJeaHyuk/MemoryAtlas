@@ -1,2558 +1,294 @@
-#!/usr/bin/env python3
-"""
-MemoryAtlas v2.4.0 - Memory-Driven Development Tool (Context Bootstrapping)
-
-=== VERSION HISTORY ===
-
-v2.0.0: Initial What-How-Log structure
-v2.1.0: Bug fixes, --doctor, template versioning
-v2.1.1: **ID**: as authority, three-way validation
-
-v2.2.0 - Authority Separation & Execution Unit:
-1. REQ split into 3 layers: DECISION (authority) / DISCUSSION / RATIONALE
-2. Must-Read field enforced in all REQ documents
-3. Execution documents split into small units (RUN-*)
-4. New folder structure: discussions/, rationale/
-5. Validation for Must-Read links
-6. RUN document format enforcement
-
-v2.2.1 - P0/P1 Fixes:
-  - Fixed header regex to support H1 (#) in addition to H2/H3
-  - Fixed Must-Read existence check to use regex instead of string contains
-  - Added ADR existence validation (no longer skipped)
-  - Expanded LINT_DIRS to include discussions and active RUNs
-  - Added 3-way ID consistency check for RUN documents
-  - Improved Must-Read parsing to return clean IDs (no links)
-
-v2.3.0 - Smart Spec Edition:
-  - CONVENTIONS rewritten with 6 core sections + Boundaries
-  - Added Commands section for explicit test/lint/run commands
-  - Added Boundaries (Always/Ask First/Never) for AI behavior control
-  - REQ template updated with optional Constraints & Boundaries section
-  - RUN template updated with Self-Check verification checklist
-  - AGENT_RULES updated to enforce Boundaries compliance
-  - Enhanced AI predictability through explicit behavioral rules
-
-v2.4.0 (Current) - Context Bootstrapping:
-  - Added --bootstrap mode for AI-driven project initialization
-  - BOOTSTRAP_PROMPT.md: AI kick-off meeting agenda
-  - Interactive project setup through LLM conversation
-  - Placeholder templates with [TODO: AI와 토의하여 결정] markers
-  - "LLM이 관리할 폴더를 LLM이 초기화" 철학 구현
-
-=== SMART SPEC MODEL ===
-
-6 Core Sections in CONVENTIONS:
-  1. Commands: Test, Lint, Run commands
-  2. Project Structure: Directory layout
-  3. Code Style: Formatting, naming conventions
-  4. Testing Strategy: Test requirements
-  5. Git Workflow: Branch/commit conventions
-  6. Boundaries: Always / Ask First / Never rules
-
-Boundaries (STRICT):
-  ✅ Always: Actions AI must always perform
-  ⚠️ Ask First: Actions requiring human approval
-  🚫 Never: Actions AI must never perform
-
-=== AUTHORITY MODEL ===
-
-권위의 흐름 (Authority Flow):
-  REQ (Authority) → TECH_SPEC → CODE → RUN/LOG
-
-문서 등급 (Document Grades):
-  - DECISION (Authority): 최종 결정만. 짧고 단단하게.
-  - DISCUSSION: 사람-AI 조율 기록. LLM은 기본적으로 안 읽음.
-  - RATIONALE/ADR: 왜 그렇게 결정했는지. 필요 시만.
-  - EXECUTION (RUN): 작업 단위. 1목적 + 1검증 + 1결과.
-
-=== EXECUTION UNIT ===
-
-실행 문서 = 1개의 목적 + 1개의 검증 방법 + 1개의 결과
-- RUN-REQ-AUTH-001-step-01.md
-- RUN-REQ-AUTH-001-step-02.md
-- ...
-
-실행 문서 구조:
-- Input: 읽을 문서 ID 목록 (P0 + Must-Read)
-- Steps: 명령/행동
-- Verification: 성공 조건 + Self-Check
-- Output: 생성/수정 파일 목록
-"""
-
-from __future__ import annotations
-
-import argparse
-import os
-import re
-import shutil
-import sys
-from datetime import datetime
-from typing import Optional
-
-CURRENT_VERSION = "2.4.0"
-ROOT_DIR = ".memory"
-TEMPLATE_VERSION = "2.4"  # Template schema version (Context Bootstrapping)
-
-# ============================================================================
-# STRUCTURE (v2.3) - Smart Spec Edition
-# ============================================================================
-# .memory/
-# ├── 00_SYSTEM/                  # 시스템 관리 (시스템만 수정)
-# ├── 01_PROJECT_CONTEXT/         # [프로젝트 헌법]
-# │   ├── 00_GOALS.md
-# │   └── 01_CONVENTIONS.md
-# ├── 02_REQUIREMENTS/            # [WHAT: Authority Layer]
-# │   ├── features/               # REQ-* (DECISION only, 최종 결정)
-# │   ├── business_rules/         # RULE-* (DECISION only)
-# │   └── discussions/            # DISC-* (조율 기록, LLM 기본 무시)
-# ├── 03_TECH_SPECS/              # [HOW: 개발자의 영역]
-# │   ├── architecture/
-# │   ├── api_specs/
-# │   └── decisions/              # ADR-* (RATIONALE)
-# ├── 04_TASK_LOGS/               # [HISTORY: Execution Layer]
-# │   ├── active/                 # RUN-* (실행 단위)
-# │   └── archive/
-# └── 98_KNOWLEDGE/               # [ASSET: 배운 점]
-#     └── troubleshooting/
-# ============================================================================
-
-DIRS = [
-    "00_SYSTEM/scripts",
-    "01_PROJECT_CONTEXT",
-    "02_REQUIREMENTS/features",
-    "02_REQUIREMENTS/business_rules",
-    "02_REQUIREMENTS/discussions",  # NEW in v2.2
-    "03_TECH_SPECS/architecture",
-    "03_TECH_SPECS/api_specs",
-    "03_TECH_SPECS/decisions",
-    "04_TASK_LOGS/active",
-    "04_TASK_LOGS/archive",
-    "98_KNOWLEDGE/troubleshooting",
-    "99_ARCHIVE",
-    "99_ARCHIVE/discussions",  # For old discussion logs
-]
-
-# ============================================================================
-# LINT / CHECK CONFIGURATION
-# ============================================================================
-# P1: Expanded to include discussions and RUN for format enforcement
-LINT_DIRS = [
-    "01_PROJECT_CONTEXT",
-    "02_REQUIREMENTS/features",
-    "02_REQUIREMENTS/business_rules",
-    "02_REQUIREMENTS/discussions",  # v2.2.1: Even if "default skip", enforce format
-    "04_TASK_LOGS/active",  # v2.2.1: RUN documents need format validation
-]
-
-LINK_SCAN_DIRS = [
-    "01_PROJECT_CONTEXT",
-    "02_REQUIREMENTS",
-    "03_TECH_SPECS",
-    "04_TASK_LOGS",
-]
-
-REQ_SCAN_DIRS = [
-    "02_REQUIREMENTS/features",
-    "02_REQUIREMENTS/business_rules",
-]
-
-RUN_SCAN_DIRS = [
-    "04_TASK_LOGS/active",
-]
-
-LINT_SKIP_FILES = {"README.md", "00_INDEX.md"}
-
-# Document type-specific header requirements
-HEADER_FIELDS_BY_TYPE = {
-    "default": ["**ID**", "**Last Updated**"],
-    "features": ["**ID**", "**Domain**", "**Status**", "**Last Updated**", "**Must-Read**"],
-    "business_rules": ["**ID**", "**Domain**", "**Priority**", "**Last Updated**", "**Must-Read**"],
-    "decisions": ["**Status**", "**Date**"],
-    "discussions": ["**ID**", "**Related-REQ**", "**Date**"],
-    "runs": ["**ID**", "**Input**", "**Verification**"],
-}
-
-# ID patterns
-REQ_ID_PATTERN = re.compile(r"^REQ-([A-Z]+)-(\d{3})$")
-RULE_ID_PATTERN = re.compile(r"^RULE-([A-Z]+)-(\d{3})$")
-ADR_ID_PATTERN = re.compile(r"^ADR-(\d{3})$")
-DISC_ID_PATTERN = re.compile(r"^DISC-([A-Z]+)-(\d{3})$")
-RUN_ID_PATTERN = re.compile(r"^RUN-(REQ|RULE)-([A-Z]+)-(\d{3})-step-(\d{2})$")
-
-# Regex patterns
-LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-
-# Authority source: **ID**: line in document metadata
-# Fix A: Include ADR in META_ID_RE
-META_ID_RE = re.compile(r"^\s*>\s*\*\*ID\*\*:\s*((?:REQ|RULE|DISC|RUN|ADR)-[A-Z0-9-]+(?:-step-\d{2})?)\s*$", re.M)
-
-# Must-Read field (v2.2)
-MUST_READ_RE = re.compile(r"^\s*>\s*\*\*Must-Read\*\*:\s*(.+)$", re.M)
-MUST_READ_ANY_ID_RE = re.compile(r"(?:REQ|RULE|DISC|CTX)-[A-Z]+-\d{3}|ADR-\d{3}")
-MUST_READ_ALLOWED_ID_RE = re.compile(r"(?:RULE)-[A-Z]+-\d{3}|ADR-\d{3}")
-MUST_READ_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
-
-# Header patterns (v2.2.1: Support H1-H3, i.e. #, ##, ###)
-# P0 fix: Templates use # [REQ-...] (H1), so regex must match #{1,3}
-REQ_HEADER_RE = re.compile(r"^#{1,3}\s+\[(REQ-[A-Z]+-\d{3})\]", re.M)
-RULE_HEADER_RE = re.compile(r"^#{1,3}\s+\[(RULE-[A-Z]+-\d{3})\]", re.M)
-RUN_HEADER_RE = re.compile(r"^#{1,3}\s+\[(RUN-(?:REQ|RULE)-[A-Z]+-\d{3}-step-\d{2})\]", re.M)
-DISC_HEADER_RE = re.compile(r"^#{1,3}\s+\[(DISC-[A-Z]+-\d{3})\]", re.M)
-
-# RUN document sections (v2.2)
-RUN_INPUT_RE = re.compile(r"^\s*>\s*\*\*Input\*\*:\s*(.+)$", re.M)
-RUN_VERIFICATION_RE = re.compile(r"^\s*>\s*\*\*Verification\*\*:\s*(.+)$", re.M)
-# Fix D: Support H3 Output (### Output)
-RUN_OUTPUT_RE = re.compile(r"^#{2,3}\s*Output", re.M)
-
-CHECKBOX_RE = re.compile(r"^\s*-\s*\[[ xX]\]", re.M)
-
-# ============================================================================
-# DOC TEMPLATES (v2.3) - Smart Spec Edition
-# ============================================================================
-DOC_TEMPLATES = {
-    # =========================================================================
-    # ROOT INDEX
-    # =========================================================================
-    "00_INDEX.md": f"""# Project Memory Index
-
-> Entry point for Memory-Driven Development in this repo.
-> **Version**: {CURRENT_VERSION} (Smart Spec Edition)
-> **Template Version**: {TEMPLATE_VERSION}
-
-## Smart Spec Model (v2.3)
-
-```
-6 Core Sections in CONVENTIONS:
-  1. Commands      - Test, Lint, Run 명령어
-  2. Structure     - 프로젝트 디렉토리 구조
-  3. Code Style    - 포맷팅, 네이밍 규칙
-  4. Testing       - 테스트 전략
-  5. Git Workflow  - 브랜치/커밋 규칙
-  6. Boundaries    - Always / Ask First / Never 규칙 ⭐
-
-Boundaries (STRICT):
-  ✅ Always    - AI가 항상 수행해야 하는 행동
-  ⚠️ Ask First - 사람 승인 후 진행
-  🚫 Never     - AI가 절대 수행하면 안 되는 행동
-```
-
-## Quick Navigation
-
-| Folder | Purpose | Authority Level |
-|--------|---------|-----------------|
-| `01_PROJECT_CONTEXT/` | 프로젝트 헌법 + **Boundaries** | Constitution |
-| `02_REQUIREMENTS/features/` | 기능 **결정** (DECISION) | Authority |
-| `02_REQUIREMENTS/business_rules/` | 규칙 **결정** (DECISION) | Authority |
-| `02_REQUIREMENTS/discussions/` | 조율 기록 (DISCUSSION) | Reference |
-| `03_TECH_SPECS/` | 기술 설계 & ADR | Implementation |
-| `04_TASK_LOGS/` | 실행 기록 (RUN-*) | Execution |
-| `98_KNOWLEDGE/` | 배운 점 | Asset |
-
-## Start Here (For AI Agents)
-
-### Reading Priority (P0 = Must Read)
-1. **P0**: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **특히 Boundaries 섹션** ⭐
-2. **P0**: Target REQ's `**Must-Read**` field
-3. **P1**: `02_REQUIREMENTS/business_rules/` (all active)
-4. **P2**: `98_KNOWLEDGE/` (if complex feature)
-
-### Execution Checklist
-1. [ ] CONVENTIONS의 **Boundaries** 확인
-2. [ ] Target REQ 읽기
-3. [ ] Must-Read 문서 읽기
-4. [ ] RUN 문서 작성 (Self-Check 포함)
-5. [ ] 구현 → 테스트 → 검증
-6. [ ] Self-Check 통과 후 RUN 완료 처리
-
-### What NOT to Read by Default
-- `02_REQUIREMENTS/discussions/` - Only when explicitly referenced
-- `04_TASK_LOGS/archive/` - Only for historical context
-- `99_ARCHIVE/` - Deprecated content
-
-## Document Map
-
-### 01_PROJECT_CONTEXT (프로젝트 헌법)
-- [00_GOALS.md](01_PROJECT_CONTEXT/00_GOALS.md) - 프로젝트 목표
-- [01_CONVENTIONS.md](01_PROJECT_CONTEXT/01_CONVENTIONS.md) - 코딩 규칙 + **Boundaries** ⭐
-
-### 02_REQUIREMENTS (요구사항)
-- [features/](02_REQUIREMENTS/features/) - 기능 **결정** (Authority)
-- [business_rules/](02_REQUIREMENTS/business_rules/) - 규칙 **결정** (Authority)
-- [discussions/](02_REQUIREMENTS/discussions/) - 조율 기록 (Reference)
-
-### 03_TECH_SPECS (기술 설계)
-- [architecture/](03_TECH_SPECS/architecture/) - 구조도, DB 스키마
-- [api_specs/](03_TECH_SPECS/api_specs/) - API 명세
-- [decisions/](03_TECH_SPECS/decisions/) - ADR (RATIONALE)
-
-### 04_TASK_LOGS (작업 기록)
-- [active/](04_TASK_LOGS/active/) - 실행 중 (RUN-*) + **Self-Check**
-- [archive/](04_TASK_LOGS/archive/) - 완료된 작업
-
-### 98_KNOWLEDGE (지식 저장소)
-- [troubleshooting/](98_KNOWLEDGE/troubleshooting/) - 해결된 난제들
-""",
-
-    # =========================================================================
-    # 01_PROJECT_CONTEXT
-    # =========================================================================
-    "01_PROJECT_CONTEXT/00_GOALS.md": f"""# Project Goals
-
-> **ID**: CTX-GOALS-001
-> **Last Updated**: (TBD)
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## 1. Project Identity
-
-### Name
-(프로젝트 이름)
-
-### One-Line Summary
-(프로젝트를 한 문장으로 설명)
-
-### Core Value
-(이 시스템이 존재하는 이유, 어떤 가치를 제공하는가?)
-
----
-
-## 2. Target Users
-
-- **Primary**: (주요 사용자)
-- **Secondary**: (부가 사용자)
-
----
-
-## 3. Success Criteria
-
-- [ ] Criterion 1
-- [ ] Criterion 2
-- [ ] Criterion 3
-
----
-
-## 4. Scope
-
-### In-Scope
-- (포함되는 기능/범위)
-
-### Out-of-Scope
-- (명시적으로 제외되는 것들)
-
----
-
-## 5. Milestones
-
-| Phase | Description | Target Date | Status |
-|-------|-------------|-------------|--------|
-| Phase 1 | MVP | TBD | Not Started |
-| Phase 2 | Core Features | TBD | Not Started |
-| Phase 3 | Hardening | TBD | Not Started |
-""",
-
-    "01_PROJECT_CONTEXT/01_CONVENTIONS.md": f"""# Coding Conventions & Rules (Smart Spec)
-
-> **ID**: CTX-CONV-001
-> **Last Updated**: (TBD)
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## 1. Commands (실행 명령어)
-
-> AI가 테스트, 린트, 실행 시 사용할 명령어를 명시합니다.
-
-| Action | Command | Description |
-|--------|---------|-------------|
-| **Test** | `pytest` | Run all unit tests |
-| **Test (specific)** | `pytest tests/test_<name>.py` | Run specific test file |
-| **Lint** | `ruff check .` | Check code style |
-| **Format** | `ruff format .` | Auto-format code |
-| **Run** | `python main.py` | Run the application |
-| **Build** | `(TBD)` | Build for production |
-
----
-
-## 2. Project Structure (프로젝트 구조)
-
-```
-project_root/
-├── src/                    # 소스 코드 (비즈니스 로직)
-│   ├── __init__.py
-│   └── (modules)/
-├── tests/                  # 테스트 코드 (src와 1:1 대응)
-│   ├── __init__.py
-│   └── test_*.py
-├── .memory/                # 프로젝트 문서 (MemoryAtlas)
-├── requirements.txt        # Python 의존성
-└── README.md               # 프로젝트 소개
-```
-
----
-
-## 3. Code Style (코드 스타일)
-
-### Python
-- **Formatter**: `ruff format` (or `black`)
-- **Linter**: `ruff check` (or `flake8`)
-- **Type Hints**: Required for all public functions
-- **Docstrings**: Google style (복잡한 함수만)
-
-### Naming Conventions
-| Type | Style | Example |
-|------|-------|---------|
-| Variables/Functions | `snake_case` | `user_name`, `get_data()` |
-| Classes | `PascalCase` | `UserManager` |
-| Constants | `UPPER_SNAKE_CASE` | `MAX_RETRY` |
-| Files | `lowercase_underscores` | `user_service.py` |
-
-### Comments
-- 복잡한 로직에만 **"Why"**를 적는다
-- 명백한 코드에 주석 금지
-- TODO: `# TODO(author): description`
-
----
-
-## 4. Testing Strategy (테스트 전략)
-
-### Requirements
-- 모든 기능(`REQ`)은 최소 1개의 테스트 파일을 가져야 함
-- 테스트 파일명: `test_<module_name>.py`
-- 테스트 함수명: `test_<behavior>_<expected_result>()`
-
-### TDD Workflow (권장)
-1. `RUN` 문서 작성 시 테스트 케이스 먼저 정의
-2. 실패하는 테스트 작성
-3. 테스트 통과하는 최소 코드 작성
-4. 리팩토링
-
-### Coverage
-- 목표: (예: 80% 이상)
-- 핵심 비즈니스 로직: 100%
-
----
-
-## 5. Git Workflow (Git 규칙)
-
-### Branch Naming
-- Feature: `feat/REQ-ID-short-desc` (예: `feat/REQ-AUTH-001-login`)
-- Bugfix: `fix/issue-id-desc`
-- Hotfix: `hotfix/critical-fix`
-
-### Commit Messages
-```
-<type>(<scope>): <subject>
-
-<body>
-```
-- **Types**: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
-- **Example**: `feat(auth): add JWT token validation`
-
-### PR Rules
-- 1 PR = 1 REQ (가능한 경우)
-- Self-review 후 요청
-- CI 통과 필수
-
----
-
-## 6. Boundaries (경계 - STRICT)
-
-> AI 에이전트가 반드시 따라야 할 행동 규칙입니다.
-> 이 섹션은 프로젝트의 **안전장치**입니다.
-
-### ✅ Always (항상 수행)
-
-다음은 AI가 **항상** 수행해야 하는 행동입니다:
-
-- [ ] `RUN` 문서 종료 전 **테스트 통과** 확인
-- [ ] 모든 퍼블릭 함수에 **Type Hint** 추가
-- [ ] 기존 코드 수정 시 **기존 테스트 통과** 확인
-- [ ] 새 기능 추가 시 **REQ 문서 참조** 확인
-
-### ⚠️ Ask First (사전 승인 필요)
-
-다음 작업은 **사람의 승인 후** 진행합니다:
-
-- [ ] `requirements.txt` 등 **의존성 추가/삭제**
-- [ ] `.memory/00_SYSTEM/` 내부 파일 수정
-- [ ] **DB 스키마 변경** (migration 등)
-- [ ] **API 엔드포인트 삭제/변경**
-- [ ] 설정 파일 (`.env`, `config.*`) 구조 변경
-- [ ] 외부 서비스 연동 추가
-
-### 🚫 Never (절대 금지)
-
-다음은 AI가 **절대** 수행하면 안 되는 행동입니다:
-
-- **Secret 커밋 금지**: API Key, Password, Token 등을 코드에 커밋하지 않음
-- **하드코딩 금지**: 프로덕션 데이터, 테스트용 mock 데이터를 프로덕션 코드에 하드코딩하지 않음
-- **물리적 삭제 금지**: 사용자 데이터를 물리적으로 삭제하지 않음 (Soft Delete 사용)
-- **Force Push 금지**: `main`/`master` 브랜치에 force push 금지
-- **테스트 스킵 금지**: 실패하는 테스트를 `@skip`으로 무시하지 않음
-
----
-
-## 7. AI Agent Quick Reference
-
-### Reading Priority (P0 = Must Read)
-1. **P0**: 이 파일 (`01_CONVENTIONS.md`)
-2. **P0**: Target REQ의 `**Must-Read**` 필드
-3. **P1**: `02_REQUIREMENTS/business_rules/` (전체)
-4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
-
-### Execution Checklist
-1. [ ] CONVENTIONS의 Boundaries 확인
-2. [ ] Target REQ 읽기
-3. [ ] Must-Read 문서 읽기
-4. [ ] RUN 문서 작성 (Self-Check 포함)
-5. [ ] 구현 → 테스트 → 검증
-6. [ ] RUN 문서 완료 처리
-""",
-
-    # =========================================================================
-    # 02_REQUIREMENTS (v2.3 - Smart Spec Edition)
-    # =========================================================================
-    "02_REQUIREMENTS/README.md": f"""# Requirements (Authority Layer)
-
-> **Template-Version**: {TEMPLATE_VERSION}
->
-> 이 폴더는 **"무엇을 만들 것인가?"**의 **최종 결정**을 저장합니다.
-> 논의/조율 기록은 `discussions/`에 분리합니다.
-
-## Authority Model (v2.3)
-
-```
-문서 등급:
-├── features/        → DECISION (Authority) - 최종 결정만
-│                      + Constraints & Boundaries (Optional)
-├── business_rules/  → DECISION (Authority) - 최종 결정만
-└── discussions/     → DISCUSSION (Reference) - 조율 기록
-```
-
-### Smart Spec Integration (v2.3)
-- **Boundaries**: 프로젝트 전역 규칙은 `01_CONVENTIONS.md`의 Boundaries 섹션
-- **Constraints**: 기능별 추가 제약은 각 REQ의 `Constraints & Boundaries` 섹션 (Optional)
-
-### Why Separate?
-- **DECISION (features/, business_rules/)**: LLM이 반드시 읽어야 함
-- **DISCUSSION (discussions/)**: LLM이 기본적으로 안 읽음. 명시적 참조 시만.
-
-이렇게 분리하면:
-1. 최종 결정이 명확해짐
-2. LLM이 "무엇이 결정인지" 확률적 판단 불필요
-3. 필수 규칙 누락/과다 참조 방지
-
-## Structure
-
-```
-02_REQUIREMENTS/
-├── features/           # REQ-* (DECISION only)
-│   └── REQ-AUTH-001.md
-├── business_rules/     # RULE-* (DECISION only)
-│   └── RULE-DATA-001.md
-└── discussions/        # DISC-* (조율 기록)
-    └── DISC-AUTH-001.md
-```
-
-## Naming Convention (STRICT)
-
-| Type | Pattern | Example | Location |
-|------|---------|---------|----------|
-| Feature | `REQ-[DOMAIN]-[NNN].md` | `REQ-AUTH-001.md` | features/ |
-| Rule | `RULE-[DOMAIN]-[NNN].md` | `RULE-DATA-001.md` | business_rules/ |
-| Discussion | `DISC-[DOMAIN]-[NNN].md` | `DISC-AUTH-001.md` | discussions/ |
-
-## Must-Read Field (Required in v2.2)
-
-모든 REQ/RULE 문서에는 `**Must-Read**` 필드가 필수입니다:
-
-```markdown
-> **Must-Read**: RULE-DATA-001, RULE-SEC-001, ADR-003
-```
-
-이 필드에 나열된 문서는 해당 REQ 구현 시 **반드시** 읽어야 합니다.
-
-- Must-Read allows only RULE/ADR IDs (CTX is P0 and not allowed here).
-- If you use markdown links, the link text must be the ID (e.g. `[RULE-DATA-001](path)`).
-""",
-
-    "02_REQUIREMENTS/features/README.md": f"""# Feature Requirements (DECISION)
-
-> **Template-Version**: {TEMPLATE_VERSION}
->
-> 이곳에는 **최종 결정**만 저장합니다.
-> 논의/대안 검토는 `../discussions/`에 작성하세요.
-
-## Template
-
-```markdown
-# [REQ-XXX-001] Feature Name
-
-> **ID**: REQ-XXX-001
-> **Domain**: (도메인)
-> **Status**: [Draft | Active | Deprecated]
-> **Last Updated**: YYYY-MM-DD
-> **Must-Read**: RULE-XXX-001, ADR-XXX
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## Decision (최종 결정)
-
-(기능에 대한 명확한 결정. 짧고 단단하게.)
-
-## Input
-
-- `param1` (type): description
-
-## Output
-
-- `result` (type): description
-
-## Acceptance Criteria
-
-- [ ] Criterion 1
-- [ ] Criterion 2
-
-## Constraints & Boundaries (Optional)
-
-> 이 기능 구현 시 적용되는 특별한 제약.
-> 프로젝트 전역 Boundaries(`01_CONVENTIONS.md`)를 넘어서는 경우만 작성.
-
-### ⚠️ Ask First
-- (이 기능에서 사람 승인이 필요한 것)
-
-### 🚫 Never
-- (이 기능에서 절대 금지)
-
-## Related
-
-- Discussion: [DISC-XXX-001](../discussions/DISC-XXX-001.md)
-- Tech Spec: [API Spec](../../03_TECH_SPECS/api_specs/)
-```
-
-## Rules
-
-1. **결정만 적는다**: 논의/대안은 discussions/에
-2. **짧게 유지**: 한 REQ = 하나의 명확한 결정
-3. **Must-Read 필수**: RULE/ADR ID만, 링크 텍스트는 ID
-4. **ID 일치**: 파일명 = **ID**: = 헤더 [ID]
-5. **Boundaries 선택적**: 프로젝트 전역 규칙 외 추가 제약 시만 작성
-""",
-
-    "02_REQUIREMENTS/business_rules/README.md": f"""# Business Rules (DECISION)
-
-> **Template-Version**: {TEMPLATE_VERSION}
->
-> 비즈니스 로직, 공식, 변하지 않는 규칙의 **최종 결정**을 저장합니다.
-
-## Template
-
-```markdown
-# [RULE-XXX-001] Rule Name
-
-> **ID**: RULE-XXX-001
-> **Domain**: (도메인)
-> **Priority**: [Critical | High | Medium | Low]
-> **Last Updated**: YYYY-MM-DD
-> **Must-Read**: RULE-XXX-001, ADR-XXX
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## Rule Statement (최종 결정)
-
-(규칙을 명확하게 한 문장으로)
-
-## Rationale
-
-(왜 이 규칙이 필요한가? 간단히)
-
-## Examples
-
-### Correct
-(올바른 예시)
-
-### Incorrect
-(잘못된 예시)
-
-## Exceptions
-
-(예외 상황이 있다면)
-```
-
-## Common Domains
-
-- **DATA**: 데이터 형식, 저장 규칙
-- **PERF**: 성능 제약
-- **SEC**: 보안 규칙
-- **UX**: 사용자 경험 규칙
-""",
-
-    "02_REQUIREMENTS/discussions/README.md": f"""# Discussions (Reference Layer)
-
-> **Template-Version**: {TEMPLATE_VERSION}
->
-> 사람-AI 조율 기록을 저장합니다.
-> **LLM은 기본적으로 이 폴더를 읽지 않습니다.**
-
-## When to Use
-
-- 요구사항 논의 과정 기록
-- 대안 검토 및 비교
-- 결정 근거 상세 설명
-- 이해관계자 의견 조율
-
-## Template
-
-```markdown
-# [DISC-XXX-001] Discussion Title
-
-> **ID**: DISC-XXX-001
-> **Related-REQ**: REQ-XXX-001 (or RULE-XXX-001)
-> **Date**: YYYY-MM-DD
-> **Participants**: (참여자)
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## Context
-
-(논의 배경)
-
-## Options Considered
-
-### Option A: (대안 1)
-- Pros: ...
-- Cons: ...
-
-### Option B: (대안 2)
-- Pros: ...
-- Cons: ...
-
-## Discussion Log
-
-### YYYY-MM-DD
-- [Person/AI]: 의견 1
-- [Person/AI]: 의견 2
-
-## Conclusion
-
-(결론 → REQ/RULE에 반영됨)
-```
-
-## Important Notes
-
-1. **LLM 기본 무시**: 명시적으로 참조하지 않으면 읽지 않음
-2. **REQ와 연결**: `Related-REQ` 필드로 관련 결정 문서 연결
-3. **Archive 정책**: 오래된 논의는 `99_ARCHIVE/discussions/`로 이동
-""",
-
-    # =========================================================================
-    # 03_TECH_SPECS
-    # =========================================================================
-    "03_TECH_SPECS/README.md": f"""# Technical Specifications (HOW)
-
-> **Template-Version**: {TEMPLATE_VERSION}
->
-> **"어떻게 만들 것인가?"**를 정의합니다.
-
-## Structure
-
-```
-03_TECH_SPECS/
-├── architecture/       # 구조도, DB 스키마
-├── api_specs/          # 입출력 명세
-└── decisions/          # ADR (RATIONALE)
-```
-
-## Relation to Authority
-
-```
-REQ (Authority) → TECH_SPEC (Implementation) → CODE
-```
-
-TECH_SPEC은 REQ의 결정을 **구현**하는 방법을 정의합니다.
-REQ와 충돌 시, REQ가 우선합니다.
-""",
-
-    "03_TECH_SPECS/architecture/README.md": f"""# Architecture Documents
-
-> **Template-Version**: {TEMPLATE_VERSION}
-
-## Template: System Architecture
-
-```markdown
-# System Architecture
-
-> **Last Updated**: YYYY-MM-DD
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## High-Level Diagram
-
-(ASCII 다이어그램 또는 이미지 링크)
-
-## Components
-
-| Component | Responsibility | Technology |
-|-----------|---------------|------------|
-| Frontend | UI | React |
-| Backend | API | FastAPI |
-| Database | Storage | PostgreSQL |
-
-## Data Flow
-
-1. User -> Frontend
-2. Frontend -> Backend API
-3. Backend -> Database
-```
-""",
-
-    "03_TECH_SPECS/api_specs/README.md": f"""# API Specifications
-
-> **Template-Version**: {TEMPLATE_VERSION}
-
-## Template
-
-```markdown
-# [Module Name] API Specification
-
-> **Module**: (모듈명)
-> **Last Updated**: YYYY-MM-DD
-> **Related-REQ**: REQ-XXX-001
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## Endpoints / Functions
-
-### `GET /api/users/{{id}}`
-
-- **Description**: 사용자 정보 조회
-- **Parameters**: `id` (UUID)
-- **Response**: User object
-- **Error Codes**: 404, 500
-```
-""",
-
-    "03_TECH_SPECS/decisions/README.md": f"""# Architecture Decision Records (RATIONALE)
-
-> **Template-Version**: {TEMPLATE_VERSION}
->
-> 기술적 의사결정과 그 **근거**를 기록합니다.
-
-## Why ADR?
-
-"왜 MongoDB 대신 PostgreSQL을 썼는가?"에 대한 답을 남깁니다.
-구조를 뒤집을 때, 이 기록을 보지 않으면 같은 실수를 반복합니다.
-
-## Template
-
-```markdown
-# ADR-001: [Decision Title]
-
-> **Status**: [Proposed | Accepted | Deprecated | Superseded]
-> **Date**: YYYY-MM-DD
-> **Deciders**: (결정자)
-> **Related-REQ**: REQ-XXX-001
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## Context
-
-(문제 상황을 설명)
-
-## Decision
-
-(무엇을 결정했는가?)
-
-## Alternatives Considered
-
-### Option A
-- Pros: ...
-- Cons: ...
-
-### Option B
-- Pros: ...
-- Cons: ...
-
-## Consequences
-
-### Positive
-- ...
-
-### Negative
-- ...
-```
-""",
-
-    # =========================================================================
-    # 04_TASK_LOGS (v2.2 - Execution Unit)
-    # =========================================================================
-    "04_TASK_LOGS/README.md": f"""# Task Logs (Execution Layer)
-
-> **Template-Version**: {TEMPLATE_VERSION}
->
-> 실행 기록을 관리합니다.
-
-## Execution Unit Model (v2.2)
-
-```
-실행 문서 1개 = 1목적 + 1검증 + 1결과
-
-RUN-REQ-AUTH-001-step-01.md  (로그인 폼 구현)
-RUN-REQ-AUTH-001-step-02.md  (API 연동)
-RUN-REQ-AUTH-001-step-03.md  (테스트 작성)
-```
-
-### Why Small Units?
-
-- 큰 RUN 금지: 한번 실행에 너무 많은 변경이 묶이면 추적 불가
-- 1:1 대응: 변경 이유를 명확히 추적 가능
-- 검색 가능: 로그가 쌓여도 의미있는 검색
-
-## Structure
-
-```
-04_TASK_LOGS/
-├── active/             # 실행 중 (RUN-*)
-│   └── RUN-REQ-AUTH-001-step-01.md
-└── archive/            # 완료된 작업
-    └── YYYY-MM/
-        └── RUN-*.md
-```
-
-## Naming Convention
-
-`RUN-[REQ|RULE]-[DOMAIN]-[NNN]-step-[NN].md`
-
-Examples:
-- `RUN-REQ-AUTH-001-step-01.md`
-- `RUN-REQ-AUTH-001-step-02.md`
-- `RUN-RULE-DATA-001-step-01.md`
-""",
-
-    "04_TASK_LOGS/active/README.md": f"""# Active Tasks (Execution)
-
-> **Template-Version**: {TEMPLATE_VERSION}
-
-## RUN Document Template
-
-```markdown
-# [RUN-REQ-XXX-001-step-01] Step Title
-
-> **ID**: RUN-REQ-XXX-001-step-01
-> **Status**: [Active | Blocked | Done]
-> **Started**: YYYY-MM-DD
-> **Input**: REQ-XXX-001, RULE-YYY-001, 01_CONVENTIONS.md
-> **Verification**: (성공 조건 - 한 줄 요약)
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## Objective
-
-(이 단계의 목표 - 하나만)
-
-## Steps
-
-1. [ ] Step 1
-2. [ ] Step 2
-
-## Verification (Self-Check)
-
-> 작업 완료 전 반드시 확인하는 체크리스트
-
-- [ ] **Test**: `pytest tests/test_xxx.py` 통과?
-- [ ] **Boundary**: Secret 커밋 없음? (`01_CONVENTIONS.md` Boundaries 준수?)
-- [ ] **Spec**: 구현이 `REQ-XXX-001`과 일치?
-
-### Success Condition
-(성공 조건 상세)
-
-## Output
-
-(생성/수정된 파일 목록)
-
-- `src/auth/login.py` - Created
-- `tests/test_login.py` - Created
-```
-
-## Rules
-
-1. **1 RUN = 1 목적**: 여러 목적을 섞지 않음
-2. **Input 명시**: 읽어야 할 문서 ID 목록 (Must-Read 포함)
-3. **Verification 명시**: 성공 조건 + Self-Check 체크리스트
-4. **Output 기록**: 생성/수정 파일 목록
-5. **Self-Check 필수**: 테스트, Boundary, Spec 일치 확인
-""",
-
-    "04_TASK_LOGS/archive/README.md": f"""# Archived Tasks
-
-> **Template-Version**: {TEMPLATE_VERSION}
-
-## Structure
-
-```
-archive/
-├── 2024-01/
-│   ├── RUN-REQ-AUTH-001-step-01.md
-│   └── RUN-REQ-AUTH-001-step-02.md
-├── 2024-02/
-│   └── ...
-```
-
-## Archive Criteria
-
-- Status가 `Done`으로 변경된 RUN 문서
-- 월별로 자동 정리
-""",
-
-    # =========================================================================
-    # 98_KNOWLEDGE
-    # =========================================================================
-    "98_KNOWLEDGE/README.md": """# Knowledge Base (ASSET)
-
-> 프로젝트를 진행하면서 배운 **"일반적인 지식"**을 저장합니다.
-
-## Why This Folder?
-
-- Task Log에 "파이썬 asyncio 에러 해결법"을 적어두면, 나중에 로그가 쌓여서 검색이 안 됩니다.
-- 배운 점을 별도로 저장해야 과거의 실수를 반복하지 않습니다.
-
-## Structure
-
-```
-98_KNOWLEDGE/
-├── troubleshooting/    # 해결된 난제들
-│   └── [topic]/        # 주제별 분류
-└── [other_topics]/     # 필요에 따라 추가
-```
-""",
-
-    "98_KNOWLEDGE/troubleshooting/README.md": f"""# Troubleshooting Guide
-
-> **Template-Version**: {TEMPLATE_VERSION}
-
-## Template
-
-```markdown
-# [Issue Title]
-
-> **Category**: [Python | JavaScript | Database | DevOps | ...]
-> **Date Discovered**: YYYY-MM-DD
-> **Related Task**: RUN-REQ-XXX-001-step-NN
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## Problem
-
-(문제 상황 설명)
-
-## Root Cause
-
-(원인 분석)
-
-## Solution
-
-(해결 방법)
-
-## Prevention
-
-(다시 발생하지 않으려면?)
-```
-""",
-
-    # =========================================================================
-    # 00_SYSTEM
-    # =========================================================================
-    "00_SYSTEM/README.md": f"""# System Management
-
-> [!CAUTION]
-> ## SYSTEM-MANAGED FOLDER
->
-> 이 폴더는 `memory_manager.py`에 의해 **자동 관리**됩니다.
->
-> ### Overwrite Policy
-> - **AGENT_RULES.md**: 시스템 업데이트 시 덮어쓰기됨
-> - **scripts/**: 시스템 업데이트 시 덮어쓰기됨
-> - 사용자/에이전트 수정 -> 다음 업데이트에서 원복
->
-> ### For Customization
-> 커스텀 규칙이 필요하면 `01_PROJECT_CONTEXT/01_CONVENTIONS.md`에 작성하세요.
-
-## Version Info
-
-- **Manager Version**: {CURRENT_VERSION}
-- **Template Version**: {TEMPLATE_VERSION}
-""",
-}
-
-# ============================================================================
-# BOOTSTRAP TEMPLATES (v2.4 - Context Bootstrapping)
-# ============================================================================
-BOOTSTRAP_PROMPT_TEMPLATE = f"""# 🚀 프로젝트 킥오프 (Context Bootstrapping)
-
-> **MemoryAtlas v{CURRENT_VERSION}**
->
-> 이 파일을 AI 에이전트(Claude, GPT 등)에게 전달하세요.
-> AI가 아래 주제로 인터뷰 후, 프로젝트 헌법을 완성합니다.
-
----
-
-## 사용 방법
-
-1. 이 파일 내용을 AI 채팅창에 복사하거나, AI에게 이 파일을 읽게 하세요.
-2. AI가 아래 아젠다에 따라 질문합니다.
-3. 대화가 끝나면 AI가 완성된 문서를 출력합니다.
-4. 출력된 내용을 해당 파일에 저장하세요.
-5. `python memory_manager.py --doctor`로 검증하세요.
-
----
-
-## 🎯 토의 아젠다 (AI에게 전달할 내용)
-
-### 1. Project Identity (프로젝트 정체성)
-
-나에게 다음을 질문해주세요:
-- 프로젝트 이름은 무엇인가요?
-- 한 문장으로 설명하면?
-- 주요 사용자는 누구인가요?
-- 핵심 가치/목표는 무엇인가요?
-
-### 2. Tech Stack (기술 스택)
-
-나에게 다음을 질문해주세요:
-- 프로그래밍 언어는? (Python, TypeScript, Go 등)
-- 프레임워크는? (FastAPI, Django, React, Next.js 등)
-- 테스트 도구는? (pytest, jest, vitest 등)
-- 린터/포매터는? (ruff, black, eslint, prettier 등)
-- 빌드/배포 도구는?
-
-### 3. Smart Spec Boundaries (경계 설정) ⭐
-
-**가장 중요합니다.** 나에게 다음을 질문해주세요:
-
-#### ✅ Always (AI가 항상 해야 할 것)
-- 테스트 관련 규칙은?
-- 코드 품질 관련 규칙은?
-- 문서화 관련 규칙은?
-
-#### ⚠️ Ask First (사전 승인 필요)
-- 어떤 변경에 대해 먼저 물어봐야 하나요?
-- 의존성 추가/삭제는 어떻게?
-- DB나 API 변경은?
-
-#### 🚫 Never (절대 금지)
-- 이 프로젝트에서 절대 하면 안 되는 것은?
-- 보안 관련 금지 사항은?
-- 데이터 관련 금지 사항은?
-
-### 4. Project Structure (프로젝트 구조)
-
-나에게 다음을 질문해주세요:
-- 소스 코드 폴더 구조는?
-- 테스트 폴더 구조는?
-- 설정 파일들은 어디에?
-
-### 5. Git Workflow (Git 규칙)
-
-나에게 다음을 질문해주세요:
-- 브랜치 네이밍 규칙은?
-- 커밋 메시지 형식은?
-- PR 규칙은?
-
----
-
-## 📋 AI에게 지시
-
-위 아젠다에 따라 나를 인터뷰한 후, **다음 2개 파일을 완성된 형태로 출력**해주세요:
-
-1. **`01_PROJECT_CONTEXT/00_GOALS.md`**
-   - 프로젝트 정체성, 목표, 범위
-
-2. **`01_PROJECT_CONTEXT/01_CONVENTIONS.md`**
-   - Commands 테이블 (실제 명령어로 채움)
-   - Project Structure (실제 구조로 채움)
-   - Code Style (실제 도구와 규칙으로 채움)
-   - Testing Strategy (실제 전략으로 채움)
-   - Git Workflow (실제 규칙으로 채움)
-   - **Boundaries** (인터뷰 결과로 채움) ⭐
-
----
-
-## ⚠️ 주의사항
-
-- 기본 템플릿의 예시가 아닌, **실제 프로젝트에 맞는 내용**으로 채워주세요.
-- Boundaries는 프로젝트 특성에 맞게 구체적으로 작성해주세요.
-- 불확실한 부분은 `[TODO: 확정 필요]`로 표시해주세요.
-
----
-
-## 완료 후
-
-1. AI가 출력한 내용을 각 파일에 저장
-2. `python memory_manager.py --doctor` 실행하여 검증
-3. 이 파일(`BOOTSTRAP_PROMPT.md`)은 삭제하거나 `99_ARCHIVE/`로 이동
-"""
-
-BOOTSTRAP_CONVENTIONS_TEMPLATE = f"""# Coding Conventions & Rules (Smart Spec)
-
-> **ID**: CTX-CONV-001
-> **Last Updated**: [TODO: AI와 토의하여 결정]
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## 1. Commands (실행 명령어)
-
-> [TODO: AI와 토의하여 결정]
-
-| Action | Command | Description |
-|--------|---------|-------------|
-| **Test** | `[TODO]` | Run all unit tests |
-| **Test (specific)** | `[TODO]` | Run specific test file |
-| **Lint** | `[TODO]` | Check code style |
-| **Format** | `[TODO]` | Auto-format code |
-| **Run** | `[TODO]` | Run the application |
-| **Build** | `[TODO]` | Build for production |
-
----
-
-## 2. Project Structure (프로젝트 구조)
-
-> [TODO: AI와 토의하여 결정]
-
-```
-project_root/
-├── [TODO]/              # 소스 코드
-├── [TODO]/              # 테스트 코드
-├── .memory/             # 프로젝트 문서 (MemoryAtlas)
-└── [TODO]               # 기타 파일들
-```
-
----
-
-## 3. Code Style (코드 스타일)
-
-> [TODO: AI와 토의하여 결정]
-
-### [Language]
-- **Formatter**: `[TODO]`
-- **Linter**: `[TODO]`
-- **Type Hints**: [TODO]
-- **Docstrings**: [TODO]
-
-### Naming Conventions
-| Type | Style | Example |
-|------|-------|---------|
-| Variables/Functions | `[TODO]` | |
-| Classes | `[TODO]` | |
-| Constants | `[TODO]` | |
-| Files | `[TODO]` | |
-
----
-
-## 4. Testing Strategy (테스트 전략)
-
-> [TODO: AI와 토의하여 결정]
-
-### Requirements
-- [TODO]
-
-### Coverage
-- 목표: [TODO]
-
----
-
-## 5. Git Workflow (Git 규칙)
-
-> [TODO: AI와 토의하여 결정]
-
-### Branch Naming
-- Feature: `[TODO]`
-- Bugfix: `[TODO]`
-
-### Commit Messages
-- Format: `[TODO]`
-
----
-
-## 6. Boundaries (경계 - STRICT)
-
-> [TODO: AI와 토의하여 결정] ⭐
-> AI 에이전트가 반드시 따라야 할 행동 규칙입니다.
-
-### ✅ Always (항상 수행)
-
-- [ ] [TODO: AI와 토의하여 결정]
-
-### ⚠️ Ask First (사전 승인 필요)
-
-- [ ] [TODO: AI와 토의하여 결정]
-
-### 🚫 Never (절대 금지)
-
-- [TODO: AI와 토의하여 결정]
-
----
-
-## 7. AI Agent Quick Reference
-
-### Reading Priority (P0 = Must Read)
-1. **P0**: 이 파일 (`01_CONVENTIONS.md`)
-2. **P0**: Target REQ의 `**Must-Read**` 필드
-3. **P1**: `02_REQUIREMENTS/business_rules/` (전체)
-4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
-
-### Execution Checklist
-1. [ ] CONVENTIONS의 Boundaries 확인
-2. [ ] Target REQ 읽기
-3. [ ] Must-Read 문서 읽기
-4. [ ] RUN 문서 작성 (Self-Check 포함)
-5. [ ] 구현 → 테스트 → 검증
-6. [ ] RUN 문서 완료 처리
-"""
-
-BOOTSTRAP_GOALS_TEMPLATE = f"""# Project Goals
-
-> **ID**: CTX-GOALS-001
-> **Last Updated**: [TODO: AI와 토의하여 결정]
-> **Template-Version**: {TEMPLATE_VERSION}
-
----
-
-## 1. Project Identity
-
-### Name
-[TODO: AI와 토의하여 결정]
-
-### One-Line Summary
-[TODO: AI와 토의하여 결정]
-
-### Core Value
-[TODO: AI와 토의하여 결정]
-
----
-
-## 2. Target Users
-
-- **Primary**: [TODO: AI와 토의하여 결정]
-- **Secondary**: [TODO: AI와 토의하여 결정]
-
----
-
-## 3. Success Criteria
-
-- [ ] [TODO: AI와 토의하여 결정]
-
----
-
-## 4. Scope
-
-### In-Scope
-- [TODO: AI와 토의하여 결정]
-
-### Out-of-Scope
-- [TODO: AI와 토의하여 결정]
-
----
-
-## 5. Milestones
-
-| Phase | Description | Target Date | Status |
-|-------|-------------|-------------|--------|
-| Phase 1 | [TODO] | [TODO] | Not Started |
-"""
-
-BOOTSTRAP_TEMPLATES = {
-    "BOOTSTRAP_PROMPT.md": BOOTSTRAP_PROMPT_TEMPLATE,
-}
-
-# ============================================================================
-# SYSTEM TEMPLATES
-# ============================================================================
-AGENT_RULES_TEMPLATE = f"""# MemoryAtlas Agent Rules (v{CURRENT_VERSION}) - Smart Spec Edition
-
-> **SYSTEM FILE**: Managed by `memory_manager.py`. DO NOT EDIT.
-> **For custom rules**: Use `01_PROJECT_CONTEXT/01_CONVENTIONS.md`.
-
----
-
-## 1. Smart Spec Model
-
-```
-6 Core Sections in CONVENTIONS:
-  1. Commands: Test, Lint, Run 명령어
-  2. Project Structure: 디렉토리 구조
-  3. Code Style: 포맷팅, 네이밍 규칙
-  4. Testing Strategy: 테스트 요구사항
-  5. Git Workflow: 브랜치/커밋 규칙
-  6. Boundaries: Always / Ask First / Never 규칙
-
-Boundaries (STRICT):
-  ✅ Always: AI가 항상 수행해야 하는 행동
-  ⚠️ Ask First: 사람 승인 후 진행
-  🚫 Never: AI가 절대 수행하면 안 되는 행동
-```
-
----
-
-## 2. Authority Model
-
-```
-권위의 흐름 (Authority Flow):
-  REQ (Authority) → TECH_SPEC → CODE → RUN/LOG
-
-문서 등급:
-  - DECISION: 최종 결정 (REQ-*, RULE-*) - MUST READ
-  - DISCUSSION: 조율 기록 (DISC-*) - DEFAULT SKIP
-  - RATIONALE: 결정 근거 (ADR-*) - READ IF REFERENCED
-  - EXECUTION: 작업 단위 (RUN-*) - CREATE/UPDATE
-```
-
----
-
-## 3. Reading Priority
-
-### P0 (Always Read)
-1. `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **특히 Boundaries 섹션**
-2. Target REQ's `**Must-Read**` field
-3. All referenced RULE-* documents
-
-### P1 (Read for Context)
-- `02_REQUIREMENTS/business_rules/` (all active)
-- Referenced ADR-* documents
-
-### Default Skip
-- `02_REQUIREMENTS/discussions/` - Only when explicitly referenced
-- `04_TASK_LOGS/archive/` - Only for historical context
-- `99_ARCHIVE/` - Deprecated content
-
----
-
-## 4. Boundaries Compliance (STRICT)
-
-### ✅ Always (항상 수행)
-- RUN 문서 종료 전 **테스트 통과** 확인
-- 모든 퍼블릭 함수에 **Type Hint** 추가
-- 기존 코드 수정 시 **기존 테스트 통과** 확인
-- 새 기능 추가 시 **REQ 문서 참조** 확인
-
-### ⚠️ Ask First (사전 승인 필요)
-- `requirements.txt` 등 **의존성 추가/삭제**
-- `.memory/00_SYSTEM/` 내부 파일 수정
-- **DB 스키마 변경** (migration 등)
-- **API 엔드포인트 삭제/변경**
-- 설정 파일 구조 변경
-
-### 🚫 Never (절대 금지)
-- **Secret 커밋 금지**: API Key, Password, Token 등
-- **하드코딩 금지**: 프로덕션 데이터, mock 데이터
-- **물리적 삭제 금지**: Soft Delete 사용
-- **Force Push 금지**: main/master 브랜치
-- **테스트 스킵 금지**: @skip으로 무시하지 않음
-
----
-
-## 5. Writing Rules
-
-### REQ/RULE Documents (Authority)
-- **결정만 적는다**: 논의/대안은 discussions/에
-- **짧게 유지**: 한 REQ = 하나의 명확한 결정
-- **Must-Read 필수**: RULE/ADR ID만, 링크 텍스트는 ID
-- **Constraints 선택적**: 기능별 추가 제약 시만 작성
-
-### RUN Documents (Execution)
-- **1 RUN = 1 목적**: 여러 목적을 섞지 않음
-- **Input 명시**: 읽어야 할 문서 ID 목록
-- **Verification 명시**: 성공 조건 + Self-Check
-- **Output 기록**: 생성/수정 파일 목록
-
----
-
-## 6. Validation Requirements
-
-### Three-Way ID Consistency
-- `**ID**:` metadata (Authority)
-- Filename
-- Header `[ID]`
-
-All three must match.
-
-### Must-Read Validation
-- Must-Read allows only RULE/ADR IDs (CTX is P0 and excluded)
-- Link text must be the ID if markdown links are used
-- All documents in `**Must-Read**` must exist
-
----
-
-## 7. Workflow
-
-### Starting a Task
-1. Read P0 documents (**CONVENTIONS의 Boundaries 확인**)
-2. Read target REQ and its Must-Read
-3. Check REQ's Constraints & Boundaries (있는 경우)
-4. Create RUN-* document in `04_TASK_LOGS/active/`
-5. Implement in small steps
-
-### Before Completing a Step (Self-Check)
-- [ ] **Test**: 테스트 통과?
-- [ ] **Boundary**: CONVENTIONS Boundaries 준수?
-- [ ] **Spec**: REQ와 일치?
-
-### Completing a Step
-1. Self-Check 완료 확인
-2. Mark RUN as Done
-3. Move to `04_TASK_LOGS/archive/YYYY-MM/`
-4. Create next step if needed
-
-### When Discussion Needed
-1. Create DISC-* in `02_REQUIREMENTS/discussions/`
-2. Reference from REQ's `Related` section
-3. Update REQ with final decision
-"""
-
-SYSTEM_TEMPLATES = {
-    "00_SYSTEM/AGENT_RULES.md": AGENT_RULES_TEMPLATE,
-}
-
-# ============================================================================
-# MIGRATION
-# ============================================================================
-MIGRATION_MAP = {
-    "01_PROJECT_CONTEXT/00_IDENTITY.md": None,
-    "01_PROJECT_CONTEXT/01_OVERVIEW.md": None,
-    "01_PROJECT_CONTEXT/02_ARCHITECTURE.md": "03_TECH_SPECS/architecture/SYSTEM_ARCHITECTURE.md",
-    "01_PROJECT_CONTEXT/03_DATA_MODEL.md": "03_TECH_SPECS/architecture/DATA_MODEL.md",
-    "01_PROJECT_CONTEXT/04_AGENT_GUIDE.md": None,
-    "02_SERVICES": "02_REQUIREMENTS/features",
-    "03_MANAGEMENT/STATUS.md": "04_TASK_LOGS/STATUS.md",
-    "03_MANAGEMENT/CHANGELOG.md": "04_TASK_LOGS/CHANGELOG.md",
-    "03_MANAGEMENT/WORKLOG.md": None,
-    "03_MANAGEMENT/COMPONENTS.md": None,
-    "03_MANAGEMENT/MISSING_COMPONENTS.md": None,
-    "03_MANAGEMENT/tasks/active": "04_TASK_LOGS/active",
-    "03_MANAGEMENT/tasks/archive": "04_TASK_LOGS/archive",
-    "90_TOOLING/AGENT_RULES.md": "00_SYSTEM/AGENT_RULES.md",
-    "90_TOOLING/scripts": "00_SYSTEM/scripts",
-}
-
-LEGACY_DIRS_TO_ARCHIVE = [
-    "02_SERVICES",
-    "03_MANAGEMENT",
-    "90_TOOLING",
-]
-
-
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
-def write_file(path: str, content: str, dry_run: bool = False) -> None:
-    """Write content to file, creating parent directories if needed."""
-    if dry_run:
-        return
-    dir_name = os.path.dirname(path)
-    if dir_name:
-        os.makedirs(dir_name, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-
-
-def read_text(path: str) -> str:
-    """Read text from file with error handling."""
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        return f.read()
-
-
-def safe_move(src: str, dest: str, dry_run: bool = False) -> bool:
-    """Safely move file/directory."""
-    if not os.path.exists(src):
-        return False
-    if dry_run:
-        return True
-    dest_dir = os.path.dirname(dest)
-    if dest_dir:
-        os.makedirs(dest_dir, exist_ok=True)
-    if os.path.exists(dest):
-        return False
+#!/usr/bin/env python
+import contextlib as __stickytape_contextlib
+
+@__stickytape_contextlib.contextmanager
+def __stickytape_temporary_dir():
+    import tempfile
+    import shutil
+    dir_path = tempfile.mkdtemp()
     try:
-        shutil.move(src, dest)
-        return True
-    except Exception as e:
-        print(f"  ! Failed to move {src}: {e}")
-        return False
+        yield dir_path
+    finally:
+        shutil.rmtree(dir_path)
 
+with __stickytape_temporary_dir() as __stickytape_working_dir:
+    def __stickytape_write_module(path, contents):
+        import os, os.path
 
-def ensure_structure(root: str) -> None:
-    """Ensure all required directories exist."""
-    for folder in DIRS:
-        os.makedirs(os.path.join(root, folder), exist_ok=True)
+        def make_package(path):
+            parts = path.split("/")
+            partial_path = __stickytape_working_dir
+            for part in parts:
+                partial_path = os.path.join(partial_path, part)
+                if not os.path.exists(partial_path):
+                    os.mkdir(partial_path)
+                    with open(os.path.join(partial_path, "__init__.py"), "wb") as f:
+                        f.write(b"\n")
 
+        make_package(os.path.dirname(path))
 
-def create_missing_docs(root: str, dry_run: bool = False) -> None:
-    """Create missing template documents."""
-    for rel_path, content in DOC_TEMPLATES.items():
-        path = os.path.join(root, rel_path)
-        if os.path.exists(path):
-            continue
-        if dry_run:
-            print(f"  - Would create doc: {rel_path}")
-            continue
-        dir_name = os.path.dirname(path)
-        if dir_name:
-            os.makedirs(dir_name, exist_ok=True)
-        write_file(path, content)
-        print(f"  + Created doc: {rel_path}")
+        full_path = os.path.join(__stickytape_working_dir, path)
+        with open(full_path, "wb") as module_file:
+            module_file.write(contents)
 
+    import sys as __stickytape_sys
+    __stickytape_sys.path.insert(0, __stickytape_working_dir)
 
-def update_system_templates(root: str, dry_run: bool = False) -> None:
-    """Update system-managed template files."""
-    for rel_path, content in SYSTEM_TEMPLATES.items():
-        path = os.path.join(root, rel_path)
-        if dry_run:
-            print(f"  - Would update system file: {rel_path}")
-            continue
-        dir_name = os.path.dirname(path)
-        if dir_name:
-            os.makedirs(dir_name, exist_ok=True)
-        write_file(path, content)
-        print(f"  * Updated system file: {rel_path}")
-
-
-def migrate_v1_to_v2(root: str, dry_run: bool = False) -> None:
-    """Migrate from v1.x structure to v2.x structure."""
-    archive_dir = os.path.join(root, "99_ARCHIVE", "v1_migration")
-    print("\n=== Migrating v1.x -> v2.x ===")
-
-    for old_rel, new_rel in MIGRATION_MAP.items():
-        old_path = os.path.join(root, old_rel)
-        if not os.path.exists(old_path):
-            continue
-
-        if new_rel is None:
-            archive_path = os.path.join(archive_dir, old_rel)
-            if dry_run:
-                print(f"  - Would archive: {old_rel}")
-            else:
-                if safe_move(old_path, archive_path):
-                    print(f"  * Archived: {old_rel}")
-        else:
-            new_path = os.path.join(root, new_rel)
-            if dry_run:
-                print(f"  - Would move: {old_rel} -> {new_rel}")
-            else:
-                if safe_move(old_path, new_path):
-                    print(f"  * Moved: {old_rel} -> {new_rel}")
-
-    for legacy_dir in LEGACY_DIRS_TO_ARCHIVE:
-        legacy_path = os.path.join(root, legacy_dir)
-        if os.path.isdir(legacy_path):
-            archive_path = os.path.join(archive_dir, legacy_dir)
-            if dry_run:
-                print(f"  - Would archive directory: {legacy_dir}")
-            else:
-                if not os.path.exists(archive_path):
-                    shutil.move(legacy_path, archive_path)
-                    print(f"  * Archived and removed: {legacy_dir}")
-                else:
-                    shutil.rmtree(legacy_path)
-                    print(f"  * Removed legacy (already archived): {legacy_dir}")
-
-
-def update_tooling(root: str, dry_run: bool = False) -> None:
-    """Copy current script to system scripts directory."""
-    src = os.path.abspath(__file__)
-    dest = os.path.join(root, "00_SYSTEM", "scripts", "memory_manager.py")
-    dest_dir = os.path.dirname(dest)
-    if dest_dir:
-        os.makedirs(dest_dir, exist_ok=True)
-    if os.path.abspath(src) != os.path.abspath(dest):
-        if dry_run:
-            print(f"  - Would update tool: {dest}")
-            return
-        shutil.copyfile(src, dest)
-        print(f"  * Updated tool: 00_SYSTEM/scripts/memory_manager.py")
-
-
-def read_version(root: str) -> str:
-    """Read installed version from VERSION file."""
-    version_file = os.path.join(root, "VERSION")
-    if not os.path.exists(version_file):
-        return "0.0.0"
-    with open(version_file, "r", encoding="utf-8") as f:
-        return f.read().strip()
-
-
-def write_version(root: str, dry_run: bool = False) -> None:
-    """Write current version to VERSION file."""
-    version_file = os.path.join(root, "VERSION")
-    if dry_run:
-        print(f"  - Would update version to: {CURRENT_VERSION}")
-        return
-    write_file(version_file, CURRENT_VERSION)
-
-
-def is_v1_structure(root: str) -> bool:
-    """Check if the current structure is v1.x"""
-    v1_markers = [
-        os.path.join(root, "02_SERVICES"),
-        os.path.join(root, "03_MANAGEMENT"),
-        os.path.join(root, "90_TOOLING"),
-    ]
-    return any(os.path.exists(m) for m in v1_markers)
-
-
-
-def bootstrap_init(dry_run: bool = False) -> None:
-    """Create Bootstrap files for AI-driven project initialization.
-    
-    Context Bootstrapping (v2.4): AI가 사용자와 인터뷰를 통해
-    프로젝트 헌법(CONVENTIONS, GOALS)을 작성하도록 유도하는 기능.
-    
-    Creates:
-        - BOOTSTRAP_PROMPT.md: AI 킥오프 미팅 아젠다
-        - 01_CONTEXT/CONVENTIONS.md: [TODO] 템플릿 (AI가 채움)
-        - 01_CONTEXT/GOALS.md: [TODO] 템플릿 (AI가 채움)
+    __stickytape_write_module('core/__init__.py', b'')
+    __stickytape_write_module('core/bootstrap.py', b'\r\nfrom pathlib import Path\r\n\r\nfrom core.config import (\r\n    BOOTSTRAP_CONVENTIONS_TEMPLATE,\r\n    BOOTSTRAP_GOALS_TEMPLATE,\r\n    BOOTSTRAP_PROMPT_TEMPLATE,\r\n    ROOT_DIR,\r\n)\r\n\r\ndef bootstrap_init(dry_run: bool = False) -> None:\r\n    """Create Bootstrap files for AI-driven project initialization.\r\n    \r\n    Context Bootstrapping (v2.4): AI\xea\xb0\x80 \xec\x82\xac\xec\x9a\xa9\xec\x9e\x90\xec\x99\x80 \xec\x9d\xb8\xed\x84\xb0\xeb\xb7\xb0\xeb\xa5\xbc \xed\x86\xb5\xed\x95\xb4\r\n    \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xed\x97\x8c\xeb\xb2\x95(CONVENTIONS, GOALS)\xec\x9d\x84 \xec\x9e\x91\xec\x84\xb1\xed\x95\x98\xeb\x8f\x84\xeb\xa1\x9d \xec\x9c\xa0\xeb\x8f\x84\xed\x95\x98\xeb\x8a\x94 \xea\xb8\xb0\xeb\x8a\xa5.\r\n    \r\n    Creates:\r\n        - BOOTSTRAP_PROMPT.md: AI \xed\x82\xa5\xec\x98\xa4\xed\x94\x84 \xeb\xaf\xb8\xed\x8c\x85 \xec\x95\x84\xec\xa0\xa0\xeb\x8b\xa4\r\n        - 01_CONTEXT/CONVENTIONS.md: [TODO] \xed\x85\x9c\xed\x94\x8c\xeb\xa6\xbf (AI\xea\xb0\x80 \xec\xb1\x84\xec\x9b\x80)\r\n        - 01_CONTEXT/GOALS.md: [TODO] \xed\x85\x9c\xed\x94\x8c\xeb\xa6\xbf (AI\xea\xb0\x80 \xec\xb1\x84\xec\x9b\x80)\r\n    """\r\n    bootstrap_dir = Path(ROOT_DIR)\r\n    context_dir = bootstrap_dir / "01_CONTEXT"\r\n    \r\n    # Ensure base structure exists\r\n    bootstrap_dir.mkdir(exist_ok=True)\r\n    context_dir.mkdir(exist_ok=True)\r\n    \r\n    files_to_create = {\r\n        bootstrap_dir / "BOOTSTRAP_PROMPT.md": BOOTSTRAP_PROMPT_TEMPLATE,\r\n        context_dir / "CONVENTIONS.md": BOOTSTRAP_CONVENTIONS_TEMPLATE,\r\n        context_dir / "GOALS.md": BOOTSTRAP_GOALS_TEMPLATE,\r\n    }\r\n    \r\n    print("\\n" + "=" * 60)\r\n    print("\xf0\x9f\x9a\x80 Context Bootstrapping (v2.4)")\r\n    print("=" * 60)\r\n    \r\n    for filepath, content in files_to_create.items():\r\n        if filepath.exists():\r\n            print(f"  [SKIP] {filepath} (already exists)")\r\n            continue\r\n        \r\n        if dry_run:\r\n            print(f"  [DRY-RUN] Would create: {filepath}")\r\n        else:\r\n            filepath.write_text(content, encoding="utf-8")\r\n            print(f"  [CREATE] {filepath}")\r\n    \r\n    print("\\n" + "-" * 60)\r\n    print("\xf0\x9f\x93\x8b \xeb\x8b\xa4\xec\x9d\x8c \xeb\x8b\xa8\xea\xb3\x84:")\r\n    print("   1. BOOTSTRAP_PROMPT.md\xeb\xa5\xbc AI \xec\x97\x90\xec\x9d\xb4\xec\xa0\x84\xed\x8a\xb8\xec\x97\x90\xea\xb2\x8c \xec\xa0\x84\xeb\x8b\xac\xed\x95\x98\xec\x84\xb8\xec\x9a\x94")\r\n    print("   2. AI\xea\xb0\x80 \xec\xa7\x88\xeb\xac\xb8\xed\x95\x98\xeb\xa9\xb4 \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8\xec\x97\x90 \xeb\xa7\x9e\xea\xb2\x8c \xeb\x8b\xb5\xeb\xb3\x80\xed\x95\x98\xec\x84\xb8\xec\x9a\x94")\r\n    print("   3. AI\xea\xb0\x80 CONVENTIONS.md\xec\x99\x80 GOALS.md\xeb\xa5\xbc \xec\x99\x84\xec\x84\xb1\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4")\r\n    print("   4. \xec\x99\x84\xeb\xa3\x8c \xed\x9b\x84 `python memory_manager.py --update`\xeb\xa1\x9c \xeb\x82\x98\xeb\xa8\xb8\xec\xa7\x80 \xea\xb5\xac\xec\xa1\xb0 \xec\x83\x9d\xec\x84\xb1")\r\n    print("-" * 60 + "\\n")\r\n')
+    __stickytape_write_module('core/config.py', b'\r\nimport re\r\n\r\nCURRENT_VERSION = "2.5.0"\r\nROOT_DIR = ".memory"\r\nTEMPLATE_VERSION = "2.4"  # Template schema version (Context Bootstrapping)\r\n\r\n# ============================================================================\r\n# STRUCTURE (v2.3) - Smart Spec Edition\r\n# ============================================================================\r\n# .memory/\r\n# \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 00_SYSTEM/                  # \xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c \xea\xb4\x80\xeb\xa6\xac (\xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c\xeb\xa7\x8c \xec\x88\x98\xec\xa0\x95)\r\n# \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 01_PROJECT_CONTEXT/         # [\xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xed\x97\x8c\xeb\xb2\x95]\r\n# \xe2\x94\x82   \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 00_GOALS.md\r\n# \xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 01_CONVENTIONS.md\r\n# \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 02_REQUIREMENTS/            # [WHAT: Authority Layer]\r\n# \xe2\x94\x82   \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 features/               # REQ-* (DECISION only, \xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95)\r\n# \xe2\x94\x82   \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 business_rules/         # RULE-* (DECISION only)\r\n# \xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 discussions/            # DISC-* (\xec\xa1\xb0\xec\x9c\xa8 \xea\xb8\xb0\xeb\xa1\x9d, LLM \xea\xb8\xb0\xeb\xb3\xb8 \xeb\xac\xb4\xec\x8b\x9c)\r\n# \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 03_TECH_SPECS/              # [HOW: \xea\xb0\x9c\xeb\xb0\x9c\xec\x9e\x90\xec\x9d\x98 \xec\x98\x81\xec\x97\xad]\r\n# \xe2\x94\x82   \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 architecture/\r\n# \xe2\x94\x82   \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 api_specs/\r\n# \xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 decisions/              # ADR-* (RATIONALE)\r\n# \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 04_TASK_LOGS/               # [HISTORY: Execution Layer]\r\n# \xe2\x94\x82   \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 active/                 # RUN-* (\xec\x8b\xa4\xed\x96\x89 \xeb\x8b\xa8\xec\x9c\x84)\r\n# \xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 archive/\r\n# \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 98_KNOWLEDGE/               # [ASSET: \xeb\xb0\xb0\xec\x9a\xb4 \xec\xa0\x90]\r\n#     \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 troubleshooting/\r\n# ============================================================================\r\n\r\nDIRS = [\r\n    "00_SYSTEM/scripts",\r\n    "01_PROJECT_CONTEXT",\r\n    "02_REQUIREMENTS/features",\r\n    "02_REQUIREMENTS/business_rules",\r\n    "02_REQUIREMENTS/discussions",  # NEW in v2.2\r\n    "03_TECH_SPECS/architecture",\r\n    "03_TECH_SPECS/api_specs",\r\n    "03_TECH_SPECS/decisions",\r\n    "04_TASK_LOGS/active",\r\n    "04_TASK_LOGS/archive",\r\n    "98_KNOWLEDGE/troubleshooting",\r\n    "99_ARCHIVE",\r\n    "99_ARCHIVE/discussions",  # For old discussion logs\r\n]\r\n\r\n# ============================================================================\r\n# LINT / CHECK CONFIGURATION\r\n# ============================================================================\r\n# P1: Expanded to include discussions and RUN for format enforcement\r\nLINT_DIRS = [\r\n    "01_PROJECT_CONTEXT",\r\n    "02_REQUIREMENTS/features",\r\n    "02_REQUIREMENTS/business_rules",\r\n    "02_REQUIREMENTS/discussions",  # v2.2.1: Even if "default skip", enforce format\r\n    "04_TASK_LOGS/active",  # v2.2.1: RUN documents need format validation\r\n]\r\n\r\nLINK_SCAN_DIRS = [\r\n    "01_PROJECT_CONTEXT",\r\n    "02_REQUIREMENTS",\r\n    "03_TECH_SPECS",\r\n    "04_TASK_LOGS",\r\n]\r\n\r\nREQ_SCAN_DIRS = [\r\n    "02_REQUIREMENTS/features",\r\n    "02_REQUIREMENTS/business_rules",\r\n]\r\n\r\nRUN_SCAN_DIRS = [\r\n    "04_TASK_LOGS/active",\r\n]\r\n\r\nLINT_SKIP_FILES = {"README.md", "00_INDEX.md"}\r\n\r\n# Document type-specific header requirements\r\nHEADER_FIELDS_BY_TYPE = {\r\n    "default": ["**ID**", "**Last Updated**"],\r\n    "features": ["**ID**", "**Domain**", "**Status**", "**Last Updated**", "**Must-Read**"],\r\n    "business_rules": ["**ID**", "**Domain**", "**Priority**", "**Last Updated**", "**Must-Read**"],\r\n    "decisions": ["**Status**", "**Date**"],\r\n    "discussions": ["**ID**", "**Related-REQ**", "**Date**"],\r\n    "runs": ["**ID**", "**Input**", "**Verification**"],\r\n}\r\n\r\n# ID patterns\r\nREQ_ID_PATTERN = re.compile(r"^REQ-([A-Z]+)-(\\d{3})$")\r\nRULE_ID_PATTERN = re.compile(r"^RULE-([A-Z]+)-(\\d{3})$")\r\nADR_ID_PATTERN = re.compile(r"^ADR-(\\d{3})$")\r\nDISC_ID_PATTERN = re.compile(r"^DISC-([A-Z]+)-(\\d{3})$")\r\nRUN_ID_PATTERN = re.compile(r"^RUN-(REQ|RULE)-([A-Z]+)-(\\d{3})-step-(\\d{2})$")\r\n\r\n# Regex patterns\r\nLINK_RE = re.compile(r"\\[[^\\]]*\\]\\(([^)]+)\\)")\r\n\r\n# Authority source: **ID**: line in document metadata\r\n# Fix A: Include ADR in META_ID_RE\r\nMETA_ID_RE = re.compile(r"^\\s*>\\s*\\*\\*ID\\*\\*:\\s*((?:REQ|RULE|DISC|RUN|ADR)-[A-Z0-9-]+(?:-step-\\d{2})?)\\s*$", re.M)\r\n\r\n# Must-Read field (v2.2)\r\nMUST_READ_RE = re.compile(r"^\\s*>\\s*\\*\\*Must-Read\\*\\*:\\s*(.+)$", re.M)\r\nMUST_READ_ANY_ID_RE = re.compile(r"(?:REQ|RULE|DISC|CTX)-[A-Z]+-\\d{3}|ADR-\\d{3}")\r\nMUST_READ_ALLOWED_ID_RE = re.compile(r"(?:RULE)-[A-Z]+-\\d{3}|ADR-\\d{3}")\r\nMUST_READ_LINK_RE = re.compile(r"\\[([^\\]]+)\\]\\(([^)]+)\\)")\r\n\r\n# Header patterns (v2.2.1: Support H1-H3, i.e. #, ##, ###)\r\n# P0 fix: Templates use # [REQ-...] (H1), so regex must match #{1,3}\r\nREQ_HEADER_RE = re.compile(r"^#{1,3}\\s+\\[(REQ-[A-Z]+-\\d{3})\\]", re.M)\r\nRULE_HEADER_RE = re.compile(r"^#{1,3}\\s+\\[(RULE-[A-Z]+-\\d{3})\\]", re.M)\r\nRUN_HEADER_RE = re.compile(r"^#{1,3}\\s+\\[(RUN-(?:REQ|RULE)-[A-Z]+-\\d{3}-step-\\d{2})\\]", re.M)\r\nDISC_HEADER_RE = re.compile(r"^#{1,3}\\s+\\[(DISC-[A-Z]+-\\d{3})\\]", re.M)\r\n\r\n# RUN document sections (v2.2)\r\nRUN_INPUT_RE = re.compile(r"^\\s*>\\s*\\*\\*Input\\*\\*:\\s*(.+)$", re.M)\r\nRUN_VERIFICATION_RE = re.compile(r"^\\s*>\\s*\\*\\*Verification\\*\\*:\\s*(.+)$", re.M)\r\n# Fix D: Support H3 Output (### Output)\r\nRUN_OUTPUT_RE = re.compile(r"^#{2,3}\\s*Output", re.M)\r\n\r\nCHECKBOX_RE = re.compile(r"^\\s*-\\s*\\[[ xX]\\]", re.M)\r\n\r\n# ============================================================================\r\n# DOC TEMPLATES (v2.3) - Smart Spec Edition\r\n# ============================================================================\r\nDOC_TEMPLATES = {\r\n    # =========================================================================\r\n    # ROOT INDEX\r\n    # =========================================================================\r\n    "00_INDEX.md": f"""# Project Memory Index\r\n\r\n> Entry point for Memory-Driven Development in this repo.\r\n> **Version**: {CURRENT_VERSION} (Smart Spec Edition)\r\n> **Template Version**: {TEMPLATE_VERSION}\r\n\r\n## Smart Spec Model (v2.3)\r\n\r\n```\r\n6 Core Sections in CONVENTIONS:\r\n  1. Commands      - Test, Lint, Run \xeb\xaa\x85\xeb\xa0\xb9\xec\x96\xb4\r\n  2. Structure     - \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xeb\x94\x94\xeb\xa0\x89\xed\x86\xa0\xeb\xa6\xac \xea\xb5\xac\xec\xa1\xb0\r\n  3. Code Style    - \xed\x8f\xac\xeb\xa7\xb7\xed\x8c\x85, \xeb\x84\xa4\xec\x9d\xb4\xeb\xb0\x8d \xea\xb7\x9c\xec\xb9\x99\r\n  4. Testing       - \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\xa0\x84\xeb\x9e\xb5\r\n  5. Git Workflow  - \xeb\xb8\x8c\xeb\x9e\x9c\xec\xb9\x98/\xec\xbb\xa4\xeb\xb0\x8b \xea\xb7\x9c\xec\xb9\x99\r\n  6. Boundaries    - Always / Ask First / Never \xea\xb7\x9c\xec\xb9\x99 \xe2\xad\x90\r\n\r\nBoundaries (STRICT):\r\n  \xe2\x9c\x85 Always    - AI\xea\xb0\x80 \xed\x95\xad\xec\x83\x81 \xec\x88\x98\xed\x96\x89\xed\x95\xb4\xec\x95\xbc \xed\x95\x98\xeb\x8a\x94 \xed\x96\x89\xeb\x8f\x99\r\n  \xe2\x9a\xa0\xef\xb8\x8f Ask First - \xec\x82\xac\xeb\x9e\x8c \xec\x8a\xb9\xec\x9d\xb8 \xed\x9b\x84 \xec\xa7\x84\xed\x96\x89\r\n  \xf0\x9f\x9a\xab Never     - AI\xea\xb0\x80 \xec\xa0\x88\xeb\x8c\x80 \xec\x88\x98\xed\x96\x89\xed\x95\x98\xeb\xa9\xb4 \xec\x95\x88 \xeb\x90\x98\xeb\x8a\x94 \xed\x96\x89\xeb\x8f\x99\r\n```\r\n\r\n## Quick Navigation\r\n\r\n| Folder | Purpose | Authority Level |\r\n|--------|---------|-----------------|\r\n| `01_PROJECT_CONTEXT/` | \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xed\x97\x8c\xeb\xb2\x95 + **Boundaries** | Constitution |\r\n| `02_REQUIREMENTS/features/` | \xea\xb8\xb0\xeb\x8a\xa5 **\xea\xb2\xb0\xec\xa0\x95** (DECISION) | Authority |\r\n| `02_REQUIREMENTS/business_rules/` | \xea\xb7\x9c\xec\xb9\x99 **\xea\xb2\xb0\xec\xa0\x95** (DECISION) | Authority |\r\n| `02_REQUIREMENTS/discussions/` | \xec\xa1\xb0\xec\x9c\xa8 \xea\xb8\xb0\xeb\xa1\x9d (DISCUSSION) | Reference |\r\n| `03_TECH_SPECS/` | \xea\xb8\xb0\xec\x88\xa0 \xec\x84\xa4\xea\xb3\x84 & ADR | Implementation |\r\n| `04_TASK_LOGS/` | \xec\x8b\xa4\xed\x96\x89 \xea\xb8\xb0\xeb\xa1\x9d (RUN-*) | Execution |\r\n| `98_KNOWLEDGE/` | \xeb\xb0\xb0\xec\x9a\xb4 \xec\xa0\x90 | Asset |\r\n\r\n## Start Here (For AI Agents)\r\n\r\n### Reading Priority (P0 = Must Read)\r\n1. **P0**: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **\xed\x8a\xb9\xed\x9e\x88 Boundaries \xec\x84\xb9\xec\x85\x98** \xe2\xad\x90\r\n2. **P0**: Target REQ\'s `**Must-Read**` field\r\n3. **P1**: `02_REQUIREMENTS/business_rules/` (all active)\r\n4. **P2**: `98_KNOWLEDGE/` (if complex feature)\r\n\r\n### Execution Checklist\r\n1. [ ] CONVENTIONS\xec\x9d\x98 **Boundaries** \xed\x99\x95\xec\x9d\xb8\r\n2. [ ] Target REQ \xec\x9d\xbd\xea\xb8\xb0\r\n3. [ ] Must-Read \xeb\xac\xb8\xec\x84\x9c \xec\x9d\xbd\xea\xb8\xb0\r\n4. [ ] RUN \xeb\xac\xb8\xec\x84\x9c \xec\x9e\x91\xec\x84\xb1 (Self-Check \xed\x8f\xac\xed\x95\xa8)\r\n5. [ ] \xea\xb5\xac\xed\x98\x84 \xe2\x86\x92 \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xe2\x86\x92 \xea\xb2\x80\xec\xa6\x9d\r\n6. [ ] Self-Check \xed\x86\xb5\xea\xb3\xbc \xed\x9b\x84 RUN \xec\x99\x84\xeb\xa3\x8c \xec\xb2\x98\xeb\xa6\xac\r\n\r\n### What NOT to Read by Default\r\n- `02_REQUIREMENTS/discussions/` - Only when explicitly referenced\r\n- `04_TASK_LOGS/archive/` - Only for historical context\r\n- `99_ARCHIVE/` - Deprecated content\r\n\r\n## Document Map\r\n\r\n### 01_PROJECT_CONTEXT (\xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xed\x97\x8c\xeb\xb2\x95)\r\n- [00_GOALS.md](01_PROJECT_CONTEXT/00_GOALS.md) - \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xeb\xaa\xa9\xed\x91\x9c\r\n- [01_CONVENTIONS.md](01_PROJECT_CONTEXT/01_CONVENTIONS.md) - \xec\xbd\x94\xeb\x94\xa9 \xea\xb7\x9c\xec\xb9\x99 + **Boundaries** \xe2\xad\x90\r\n\r\n### 02_REQUIREMENTS (\xec\x9a\x94\xea\xb5\xac\xec\x82\xac\xed\x95\xad)\r\n- [features/](02_REQUIREMENTS/features/) - \xea\xb8\xb0\xeb\x8a\xa5 **\xea\xb2\xb0\xec\xa0\x95** (Authority)\r\n- [business_rules/](02_REQUIREMENTS/business_rules/) - \xea\xb7\x9c\xec\xb9\x99 **\xea\xb2\xb0\xec\xa0\x95** (Authority)\r\n- [discussions/](02_REQUIREMENTS/discussions/) - \xec\xa1\xb0\xec\x9c\xa8 \xea\xb8\xb0\xeb\xa1\x9d (Reference)\r\n\r\n### 03_TECH_SPECS (\xea\xb8\xb0\xec\x88\xa0 \xec\x84\xa4\xea\xb3\x84)\r\n- [architecture/](03_TECH_SPECS/architecture/) - \xea\xb5\xac\xec\xa1\xb0\xeb\x8f\x84, DB \xec\x8a\xa4\xed\x82\xa4\xeb\xa7\x88\r\n- [api_specs/](03_TECH_SPECS/api_specs/) - API \xeb\xaa\x85\xec\x84\xb8\r\n- [decisions/](03_TECH_SPECS/decisions/) - ADR (RATIONALE)\r\n\r\n### 04_TASK_LOGS (\xec\x9e\x91\xec\x97\x85 \xea\xb8\xb0\xeb\xa1\x9d)\r\n- [active/](04_TASK_LOGS/active/) - \xec\x8b\xa4\xed\x96\x89 \xec\xa4\x91 (RUN-*) + **Self-Check**\r\n- [archive/](04_TASK_LOGS/archive/) - \xec\x99\x84\xeb\xa3\x8c\xeb\x90\x9c \xec\x9e\x91\xec\x97\x85\r\n\r\n### 98_KNOWLEDGE (\xec\xa7\x80\xec\x8b\x9d \xec\xa0\x80\xec\x9e\xa5\xec\x86\x8c)\r\n- [troubleshooting/](98_KNOWLEDGE/troubleshooting/) - \xed\x95\xb4\xea\xb2\xb0\xeb\x90\x9c \xeb\x82\x9c\xec\xa0\x9c\xeb\x93\xa4\r\n""",\r\n\r\n    # =========================================================================\r\n    # 01_PROJECT_CONTEXT\r\n    # =========================================================================\r\n    "01_PROJECT_CONTEXT/00_GOALS.md": f"""# Project Goals\r\n\r\n> **ID**: CTX-GOALS-001\r\n> **Last Updated**: (TBD)\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## 1. Project Identity\r\n\r\n### Name\r\n(\xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xec\x9d\xb4\xeb\xa6\x84)\r\n\r\n### One-Line Summary\r\n(\xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8\xeb\xa5\xbc \xed\x95\x9c \xeb\xac\xb8\xec\x9e\xa5\xec\x9c\xbc\xeb\xa1\x9c \xec\x84\xa4\xeb\xaa\x85)\r\n\r\n### Core Value\r\n(\xec\x9d\xb4 \xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c\xec\x9d\xb4 \xec\xa1\xb4\xec\x9e\xac\xed\x95\x98\xeb\x8a\x94 \xec\x9d\xb4\xec\x9c\xa0, \xec\x96\xb4\xeb\x96\xa4 \xea\xb0\x80\xec\xb9\x98\xeb\xa5\xbc \xec\xa0\x9c\xea\xb3\xb5\xed\x95\x98\xeb\x8a\x94\xea\xb0\x80?)\r\n\r\n---\r\n\r\n## 2. Target Users\r\n\r\n- **Primary**: (\xec\xa3\xbc\xec\x9a\x94 \xec\x82\xac\xec\x9a\xa9\xec\x9e\x90)\r\n- **Secondary**: (\xeb\xb6\x80\xea\xb0\x80 \xec\x82\xac\xec\x9a\xa9\xec\x9e\x90)\r\n\r\n---\r\n\r\n## 3. Success Criteria\r\n\r\n- [ ] Criterion 1\r\n- [ ] Criterion 2\r\n- [ ] Criterion 3\r\n\r\n---\r\n\r\n## 4. Scope\r\n\r\n### In-Scope\r\n- (\xed\x8f\xac\xed\x95\xa8\xeb\x90\x98\xeb\x8a\x94 \xea\xb8\xb0\xeb\x8a\xa5/\xeb\xb2\x94\xec\x9c\x84)\r\n\r\n### Out-of-Scope\r\n- (\xeb\xaa\x85\xec\x8b\x9c\xec\xa0\x81\xec\x9c\xbc\xeb\xa1\x9c \xec\xa0\x9c\xec\x99\xb8\xeb\x90\x98\xeb\x8a\x94 \xea\xb2\x83\xeb\x93\xa4)\r\n\r\n---\r\n\r\n## 5. Milestones\r\n\r\n| Phase | Description | Target Date | Status |\r\n|-------|-------------|-------------|--------|\r\n| Phase 1 | MVP | TBD | Not Started |\r\n| Phase 2 | Core Features | TBD | Not Started |\r\n| Phase 3 | Hardening | TBD | Not Started |\r\n""",\r\n\r\n    "01_PROJECT_CONTEXT/01_CONVENTIONS.md": f"""# Coding Conventions & Rules (Smart Spec)\r\n\r\n> **ID**: CTX-CONV-001\r\n> **Last Updated**: (TBD)\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## 1. Commands (\xec\x8b\xa4\xed\x96\x89 \xeb\xaa\x85\xeb\xa0\xb9\xec\x96\xb4)\r\n\r\n> AI\xea\xb0\x80 \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8, \xeb\xa6\xb0\xed\x8a\xb8, \xec\x8b\xa4\xed\x96\x89 \xec\x8b\x9c \xec\x82\xac\xec\x9a\xa9\xed\x95\xa0 \xeb\xaa\x85\xeb\xa0\xb9\xec\x96\xb4\xeb\xa5\xbc \xeb\xaa\x85\xec\x8b\x9c\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n| Action | Command | Description |\r\n|--------|---------|-------------|\r\n| **Test** | `pytest` | Run all unit tests |\r\n| **Test (specific)** | `pytest tests/test_<name>.py` | Run specific test file |\r\n| **Lint** | `ruff check .` | Check code style |\r\n| **Format** | `ruff format .` | Auto-format code |\r\n| **Run** | `python main.py` | Run the application |\r\n| **Build** | `(TBD)` | Build for production |\r\n\r\n---\r\n\r\n## 2. Project Structure (\xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xea\xb5\xac\xec\xa1\xb0)\r\n\r\n```\r\nproject_root/\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 src/                    # \xec\x86\x8c\xec\x8a\xa4 \xec\xbd\x94\xeb\x93\x9c (\xeb\xb9\x84\xec\xa6\x88\xeb\x8b\x88\xec\x8a\xa4 \xeb\xa1\x9c\xec\xa7\x81)\r\n\xe2\x94\x82   \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 __init__.py\r\n\xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 (modules)/\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 tests/                  # \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\xbd\x94\xeb\x93\x9c (src\xec\x99\x80 1:1 \xeb\x8c\x80\xec\x9d\x91)\r\n\xe2\x94\x82   \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 __init__.py\r\n\xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 test_*.py\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 .memory/                # \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xeb\xac\xb8\xec\x84\x9c (MemoryAtlas)\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 requirements.txt        # Python \xec\x9d\x98\xec\xa1\xb4\xec\x84\xb1\r\n\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 README.md               # \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xec\x86\x8c\xea\xb0\x9c\r\n```\r\n\r\n---\r\n\r\n## 3. Code Style (\xec\xbd\x94\xeb\x93\x9c \xec\x8a\xa4\xed\x83\x80\xec\x9d\xbc)\r\n\r\n### Python\r\n- **Formatter**: `ruff format` (or `black`)\r\n- **Linter**: `ruff check` (or `flake8`)\r\n- **Type Hints**: Required for all public functions\r\n- **Docstrings**: Google style (\xeb\xb3\xb5\xec\x9e\xa1\xed\x95\x9c \xed\x95\xa8\xec\x88\x98\xeb\xa7\x8c)\r\n\r\n### Naming Conventions\r\n| Type | Style | Example |\r\n|------|-------|---------|\r\n| Variables/Functions | `snake_case` | `user_name`, `get_data()` |\r\n| Classes | `PascalCase` | `UserManager` |\r\n| Constants | `UPPER_SNAKE_CASE` | `MAX_RETRY` |\r\n| Files | `lowercase_underscores` | `user_service.py` |\r\n\r\n### Comments\r\n- \xeb\xb3\xb5\xec\x9e\xa1\xed\x95\x9c \xeb\xa1\x9c\xec\xa7\x81\xec\x97\x90\xeb\xa7\x8c **"Why"**\xeb\xa5\xbc \xec\xa0\x81\xeb\x8a\x94\xeb\x8b\xa4\r\n- \xeb\xaa\x85\xeb\xb0\xb1\xed\x95\x9c \xec\xbd\x94\xeb\x93\x9c\xec\x97\x90 \xec\xa3\xbc\xec\x84\x9d \xea\xb8\x88\xec\xa7\x80\r\n- TODO: `# TODO(author): description`\r\n\r\n---\r\n\r\n## 4. Testing Strategy (\xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\xa0\x84\xeb\x9e\xb5)\r\n\r\n### Requirements\r\n- \xeb\xaa\xa8\xeb\x93\xa0 \xea\xb8\xb0\xeb\x8a\xa5(`REQ`)\xec\x9d\x80 \xec\xb5\x9c\xec\x86\x8c 1\xea\xb0\x9c\xec\x9d\x98 \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xed\x8c\x8c\xec\x9d\xbc\xec\x9d\x84 \xea\xb0\x80\xec\xa0\xb8\xec\x95\xbc \xed\x95\xa8\r\n- \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xed\x8c\x8c\xec\x9d\xbc\xeb\xaa\x85: `test_<module_name>.py`\r\n- \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xed\x95\xa8\xec\x88\x98\xeb\xaa\x85: `test_<behavior>_<expected_result>()`\r\n\r\n### TDD Workflow (\xea\xb6\x8c\xec\x9e\xa5)\r\n1. `RUN` \xeb\xac\xb8\xec\x84\x9c \xec\x9e\x91\xec\x84\xb1 \xec\x8b\x9c \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\xbc\x80\xec\x9d\xb4\xec\x8a\xa4 \xeb\xa8\xbc\xec\xa0\x80 \xec\xa0\x95\xec\x9d\x98\r\n2. \xec\x8b\xa4\xed\x8c\xa8\xed\x95\x98\xeb\x8a\x94 \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\x9e\x91\xec\x84\xb1\r\n3. \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xed\x86\xb5\xea\xb3\xbc\xed\x95\x98\xeb\x8a\x94 \xec\xb5\x9c\xec\x86\x8c \xec\xbd\x94\xeb\x93\x9c \xec\x9e\x91\xec\x84\xb1\r\n4. \xeb\xa6\xac\xed\x8c\xa9\xed\x86\xa0\xeb\xa7\x81\r\n\r\n### Coverage\r\n- \xeb\xaa\xa9\xed\x91\x9c: (\xec\x98\x88: 80% \xec\x9d\xb4\xec\x83\x81)\r\n- \xed\x95\xb5\xec\x8b\xac \xeb\xb9\x84\xec\xa6\x88\xeb\x8b\x88\xec\x8a\xa4 \xeb\xa1\x9c\xec\xa7\x81: 100%\r\n\r\n---\r\n\r\n## 5. Git Workflow (Git \xea\xb7\x9c\xec\xb9\x99)\r\n\r\n### Branch Naming\r\n- Feature: `feat/REQ-ID-short-desc` (\xec\x98\x88: `feat/REQ-AUTH-001-login`)\r\n- Bugfix: `fix/issue-id-desc`\r\n- Hotfix: `hotfix/critical-fix`\r\n\r\n### Commit Messages\r\n```\r\n<type>(<scope>): <subject>\r\n\r\n<body>\r\n```\r\n- **Types**: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`\r\n- **Example**: `feat(auth): add JWT token validation`\r\n\r\n### PR Rules\r\n- 1 PR = 1 REQ (\xea\xb0\x80\xeb\x8a\xa5\xed\x95\x9c \xea\xb2\xbd\xec\x9a\xb0)\r\n- Self-review \xed\x9b\x84 \xec\x9a\x94\xec\xb2\xad\r\n- CI \xed\x86\xb5\xea\xb3\xbc \xed\x95\x84\xec\x88\x98\r\n\r\n---\r\n\r\n## 6. Smart Spec Boundaries (STRICT)\r\n\r\n### \xe2\x9c\x85 Always (\xed\x95\xad\xec\x83\x81 \xec\x88\x98\xed\x96\x89)\r\n- `RUN` \xeb\xac\xb8\xec\x84\x9c \xec\x9e\x91\xec\x84\xb1 \xec\x8b\x9c `Verification` \xec\x84\xb9\xec\x85\x98\xec\x97\x90 \xea\xb5\xac\xec\xb2\xb4\xec\xa0\x81\xec\x9d\xb8 **\xea\xb2\x80\xec\xa6\x9d \xeb\xaa\x85\xeb\xa0\xb9\xec\x96\xb4**\xeb\xa5\xbc \xed\x8f\xac\xed\x95\xa8\xed\x95\xa0 \xea\xb2\x83. (\xec\x98\x88: `pytest tests/auth/`)\r\n- \xeb\xaa\xa8\xeb\x93\xa0 \xed\x8d\xbc\xeb\xb8\x94\xeb\xa6\xad API/\xed\x95\xa8\xec\x88\x98\xec\x97\x90\xeb\x8a\x94 **Docstring**\xea\xb3\xbc **Type Hint**\xeb\xa5\xbc \xed\x8f\xac\xed\x95\xa8\xed\x95\xa0 \xea\xb2\x83.\r\n\r\n### \xf0\x9f\x99\x8b Ask First (\xeb\xac\xbc\xec\x96\xb4\xeb\xb3\xbc \xea\xb2\x83)\r\n- `requirements.txt`, `package.json` \xeb\x93\xb1 **\xec\x9d\x98\xec\xa1\xb4\xec\x84\xb1 \xec\xb6\x94\xea\xb0\x80/\xeb\xb3\x80\xea\xb2\xbd**.\r\n- **DB \xec\x8a\xa4\xed\x82\xa4\xeb\xa7\x88 \xeb\xb3\x80\xea\xb2\xbd** (`migration` \xed\x8c\x8c\xec\x9d\xbc \xec\x83\x9d\xec\x84\xb1).\r\n- \xea\xb8\xb0\xec\xa1\xb4 `01_CONVENTIONS`\xeb\x82\x98 \xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c \xed\x85\x9c\xed\x94\x8c\xeb\xa6\xbf \xec\x88\x98\xec\xa0\x95.\r\n\r\n### \xf0\x9f\x9a\xab Never (\xec\xa0\x88\xeb\x8c\x80 \xea\xb8\x88\xec\xa7\x80)\r\n- **Secret Key**, Password, API Key\xeb\xa5\xbc \xec\xbd\x94\xeb\x93\x9c\xeb\x82\x98 \xeb\xac\xb8\xec\x84\x9c\xec\x97\x90 \xed\x95\x98\xeb\x93\x9c\xec\xbd\x94\xeb\x94\xa9.\r\n- **Mock Data**\xeb\xa5\xbc \xed\x94\x84\xeb\xa1\x9c\xeb\x8d\x95\xec\x85\x98 \xec\xbd\x94\xeb\x93\x9c\xec\x97\x90 \xeb\x82\xa8\xea\xb8\xb0\xeb\x8a\x94 \xed\x96\x89\xec\x9c\x84.\r\n- `REQ` \xeb\xac\xb8\xec\x84\x9c\xec\x9d\x98 **Decision** \xec\x84\xb9\xec\x85\x98\xec\x9d\x84 \xec\x88\x98\xec\xa0\x95\xed\x95\x98\xec\xa7\x80 \xec\x95\x8a\xea\xb3\xa0 \xed\x95\x98\xeb\x8b\xa8\xec\x97\x90 "\xec\xb6\x94\xea\xb0\x80 \xec\x82\xac\xed\x95\xad"\xec\x9c\xbc\xeb\xa1\x9c \xeb\x8d\xa7\xeb\xb6\x99\xec\x9d\xb4\xeb\x8a\x94 \xed\x96\x89\xec\x9c\x84.\r\n\r\n---\r\n\r\n## 7. Documentation Maintenance Policy\r\n1. **SSOT (Single Source of Truth)**: `REQ` \xeb\xac\xb8\xec\x84\x9c\xeb\x8a\x94 \xed\x95\xad\xec\x83\x81 **\xed\x98\x84\xec\x9e\xac \xec\x8b\x9c\xec\xa0\x90\xec\x9d\x98 \xec\xb5\x9c\xec\xa2\x85 \xeb\xaa\x85\xec\x84\xb8**\xec\x97\xac\xec\x95\xbc \xed\x95\x9c\xeb\x8b\xa4.\r\n2. **Rewrite, Don\'t Append**: \xec\x9a\x94\xea\xb5\xac\xec\x82\xac\xed\x95\xad\xec\x9d\xb4 \xeb\xb3\x80\xea\xb2\xbd\xeb\x90\x98\xeb\xa9\xb4 \xea\xb8\xb0\xec\xa1\xb4 \xed\x85\x8d\xec\x8a\xa4\xed\x8a\xb8\xeb\xa5\xbc \xec\x88\x98\xec\xa0\x95(Refactor)\xed\x95\x98\xeb\x9d\xbc. \xeb\xb0\x91\xec\x97\x90 "Update 1..." \xec\x8b\x9d\xec\x9c\xbc\xeb\xa1\x9c \xeb\x8d\xa7\xeb\xb6\x99\xec\x9d\xb4\xec\xa7\x80 \xeb\xa7\x88\xeb\x9d\xbc.\r\n3. **Change Log**: \xeb\xb3\x80\xea\xb2\xbd \xec\x9d\xb4\xeb\xa0\xa5\xec\x9d\x80 \xeb\xac\xb8\xec\x84\x9c \xec\xb5\x9c\xec\x83\x81\xeb\x8b\xa8\xec\x9d\x98 `Change Log` \xed\x85\x8c\xec\x9d\xb4\xeb\xb8\x94\xec\x97\x90\xeb\xa7\x8c \xea\xb8\xb0\xeb\xa1\x9d\xed\x95\x98\xeb\x9d\xbc.\r\n\r\n---\r\n\r\n## 8. AI Agent Quick Reference\r\n\r\n### Reading Priority (P0 = Must Read)\r\n1. **P0**: \xec\x9d\xb4 \xed\x8c\x8c\xec\x9d\xbc (`01_CONVENTIONS.md`)\r\n2. **P0**: Target REQ\xec\x9d\x98 `**Must-Read**` \xed\x95\x84\xeb\x93\x9c\r\n3. **P1**: `02_REQUIREMENTS/business_rules/` (\xec\xa0\x84\xec\xb2\xb4)\r\n4. **P2**: `98_KNOWLEDGE/` (\xeb\xb3\xb5\xec\x9e\xa1\xed\x95\x9c \xea\xb8\xb0\xeb\x8a\xa5 \xec\x8b\x9c)\r\n\r\n### Execution Checklist\r\n1. [ ] CONVENTIONS\xec\x9d\x98 Boundaries \xed\x99\x95\xec\x9d\xb8\r\n2. [ ] Target REQ \xec\x9d\xbd\xea\xb8\xb0\r\n3. [ ] Must-Read \xeb\xac\xb8\xec\x84\x9c \xec\x9d\xbd\xea\xb8\xb0\r\n4. [ ] RUN \xeb\xac\xb8\xec\x84\x9c \xec\x9e\x91\xec\x84\xb1 (Self-Check \xed\x8f\xac\xed\x95\xa8)\r\n5. [ ] \xea\xb5\xac\xed\x98\x84 \xe2\x86\x92 \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xe2\x86\x92 \xea\xb2\x80\xec\xa6\x9d\r\n6. [ ] RUN \xeb\xac\xb8\xec\x84\x9c \xec\x99\x84\xeb\xa3\x8c \xec\xb2\x98\xeb\xa6\xac\r\n""",\r\n\r\n    "01_PROJECT_CONTEXT/04_AGENT_GUIDE.md": """# Agent Guide\r\n\r\n## Source of Truth\r\n- Always start with 00_INDEX.md.\r\n- Prefer .memory documents over ad-hoc assumptions.\r\n\r\n## Update Rules\r\n- Update 02_SERVICES when requirements or specs change.\r\n- Update 01_PROJECT_CONTEXT when architecture or scope changes.\r\n- Update 03_MANAGEMENT after implementing or deferring work.\r\n\r\n## Documentation Standard: Structured Natural Language\r\nUse the following rules so humans and LLMs can both parse and act on documents reliably.\r\n\r\n### Rule 1: Metadata Header (Context Injection)\r\nPlace a header at the very top to declare what the document is, who it is for, and its freshness.\r\n\r\n```markdown\r\n# Document Title (e.g., News Classification Service Requirements)\r\n\r\n> **ID**: DOC-ING-001\r\n> **Service**: Ingestion Service\r\n> **Scope**: News article category classification and tagging logic\r\n> **Last Updated**: 2026-01-15\r\n\r\n---\r\n```\r\n\r\n### Rule 2: Atomic Requirements (ID-Scoped Blocks)\r\nWrite each requirement as its own block with an ID and explicit fields.\r\n\r\n```markdown\r\n### [REQ-CLS-001] Rule-Based Disclosure Classification\r\n\r\n- **Description**: If the title contains certain keywords, classify immediately without an LLM.\r\n- **Input**: `Article` (title, content)\r\n- **Output**: `ClassificationResult` (category=\'CORP_EVENT\', confidence=1.0)\r\n- **Rules**:\r\n  - If the title contains "[\xea\xb3\xb5\xec\x8b\x9c]" or "[IR]", classify as `CORP_EVENT`.\r\n  - If the title contains "\xec\x86\x8d\xeb\xb3\xb4", increase weight.\r\n```\r\n\r\n### Rule 3: Checkbox State Tracking\r\nTrack implementation inside the requirement using checkboxes.\r\n\r\n```markdown\r\n- **Acceptance Criteria**:\r\n  - [x] "[\xea\xb3\xb5\xec\x8b\x9c]" keyword handling implemented\r\n  - [ ] "[IR]" keyword handling implemented\r\n  - [ ] Unit tests written\r\n```\r\n\r\n### Rule 4: Explicit Schemas via Code Blocks\r\nDefine schemas and examples inside code blocks (json, python, etc.).\r\n\r\n```markdown\r\n**Output Format Example**:\r\n```json\r\n{\r\n  "category": "MACRO",\r\n  "confidence": 0.95,\r\n  "reasoning": "Multiple mentions of rate hikes"\r\n}\r\n```\r\n```\r\n\r\n### Rule 5: Explicit Linking\r\nUse relative links to related documents.\r\n\r\n```markdown\r\n## Related Documents\r\n- **Data Model**: [../../01_PROJECT_CONTEXT/03_DATA_MODEL.md](../../01_PROJECT_CONTEXT/03_DATA_MODEL.md)\r\n- **Architecture**: [../../01_PROJECT_CONTEXT/02_ARCHITECTURE.md](../../01_PROJECT_CONTEXT/02_ARCHITECTURE.md)\r\n```\r\n\r\n### Rule 6: Human-Centric Readability (\xec\x82\xac\xeb\x9e\x8c \xec\xa4\x91\xec\x8b\xac \xea\xb0\x80\xeb\x8f\x85\xec\x84\xb1)\r\n\xec\x82\xac\xeb\x9e\x8c\xec\x9d\xb4 3\xec\xb4\x88 \xec\x95\x88\xec\x97\x90 \xed\x95\xb5\xec\x8b\xac\xec\x9d\x84 \xed\x8c\x8c\xec\x95\x85\xed\x95\xa0 \xec\x88\x98 \xec\x9e\x88\xeb\x8f\x84\xeb\xa1\x9d \xec\x9e\x91\xec\x84\xb1\xed\x95\x98\xeb\x9d\xbc.\r\n\r\n1. **BLUF (Bottom Line Up Front)**: \xeb\xaa\xa8\xeb\x93\xa0 \xec\x84\xb9\xec\x85\x98\xec\x9d\x80 **\xea\xb2\xb0\xeb\xa1\xa0(Conclusion)**\xec\x9d\xb4\xeb\x82\x98 **\xed\x95\x9c \xec\xa4\x84 \xec\x9a\x94\xec\x95\xbd(Summary)**\xec\x9c\xbc\xeb\xa1\x9c \xec\x8b\x9c\xec\x9e\x91\xed\x95\x98\xeb\x9d\xbc.\r\n2. **Visual Anchors (Emojis)**: \xed\x85\x8d\xec\x8a\xa4\xed\x8a\xb8\xec\x9d\x98 \xec\x84\xb1\xea\xb2\xa9\xec\x9d\x84 \xec\x95\x84\xec\x9d\xb4\xec\xbd\x98\xec\x9c\xbc\xeb\xa1\x9c \xed\x91\x9c\xec\x8b\x9c\xed\x95\x98\xeb\x9d\xbc.\r\n   - \xf0\x9f\x93\x95 **Critical**: \xec\xa3\xbc\xec\x9d\x98\xec\x82\xac\xed\x95\xad, \xeb\xb3\xb4\xec\x95\x88 \xec\x9d\xb4\xec\x8a\x88\r\n   - \xe2\x9c\xa8 **Feature**: \xec\x83\x88\xeb\xa1\x9c\xec\x9a\xb4 \xea\xb8\xb0\xeb\x8a\xa5\r\n   - \xf0\x9f\x92\xa1 **Note**: \xec\xb0\xb8\xea\xb3\xa0, \xed\x8c\x81\r\n   - \xe2\x9d\x93 **Open**: \xeb\xaf\xb8\xea\xb2\xb0\xec\xa0\x95 \xec\x82\xac\xed\x95\xad\r\n\r\n### Rule 7: Diagram Over Text (\xed\x85\x8d\xec\x8a\xa4\xed\x8a\xb8\xeb\xb3\xb4\xeb\x8b\xa4 \xeb\x8b\xa4\xec\x9d\xb4\xec\x96\xb4\xea\xb7\xb8\xeb\x9e\xa8)\r\n\xec\xa1\xb0\xea\xb1\xb4 \xeb\xb6\x84\xea\xb8\xb0\xeb\x82\x98 \xed\x9d\x90\xeb\xa6\x84\xec\x9d\xb4 3\xeb\x8b\xa8\xea\xb3\x84 \xec\x9d\xb4\xec\x83\x81 \xeb\x84\x98\xec\x96\xb4\xea\xb0\x80\xeb\xa9\xb4 \xec\xa4\x84\xea\xb8\x80 \xec\x82\xac\xec\x9a\xa9\xec\x9d\x84 \xea\xb8\x88\xec\xa7\x80\xed\x95\x9c\xeb\x8b\xa4.\r\n\r\n1. **Decision Matrix**: \xeb\xb3\xb5\xec\x9e\xa1\xed\x95\x9c \xec\xa1\xb0\xea\xb1\xb4(\xea\xb6\x8c\xed\x95\x9c, \xec\x83\x81\xed\x83\x9c \xeb\x93\xb1)\xec\x9d\x80 \xeb\xb0\x98\xeb\x93\x9c\xec\x8b\x9c **\xeb\xa7\x88\xed\x81\xac\xeb\x8b\xa4\xec\x9a\xb4 \xed\x91\x9c(Table)**\xeb\xa1\x9c \xec\x9e\x91\xec\x84\xb1\xed\x95\x98\xeb\x9d\xbc.\r\n2. **Mermaid.js**: \xeb\x8d\xb0\xec\x9d\xb4\xed\x84\xb0 \xed\x9d\x90\xeb\xa6\x84\xec\x9d\xb4\xeb\x82\x98 \xec\x83\x81\xed\x83\x9c \xeb\xb3\x80\xed\x99\x94\xeb\x8a\x94 `mermaid` \xec\xbd\x94\xeb\x93\x9c \xeb\xb8\x94\xeb\xa1\x9d\xec\x9c\xbc\xeb\xa1\x9c \xec\x8b\x9c\xea\xb0\x81\xed\x99\x94\xed\x95\x98\xeb\x9d\xbc.\r\n\r\n## Expected Effects (Current vs Proposed)\r\n\r\n| \xea\xb5\xac\xeb\xb6\x84 | \xed\x98\x84\xec\x9e\xac \xec\x83\x81\xed\x83\x9c (Current) | \xec\xb6\x94\xea\xb0\x80 \xec\xa0\x81\xec\x9a\xa9 \xed\x9b\x84 (Proposed) |\r\n|------|---------------------|-------------------------|\r\n| \xeb\xb3\xb5\xec\x9e\xa1\xed\x95\x9c \xeb\xa1\x9c\xec\xa7\x81 \xec\x84\xa4\xeb\xaa\x85 | "\xea\xb4\x80\xeb\xa6\xac\xec\x9e\x90\xeb\x8a\x94 \xec\x9d\xbd\xea\xb8\xb0 \xec\x93\xb0\xea\xb8\xb0\xea\xb0\x80 \xeb\x90\x98\xeb\x8a\x94\xeb\x8d\xb0 \xec\x9c\xa0\xec\xa0\x80\xeb\x8a\x94 \xec\x9d\xbd\xea\xb8\xb0\xeb\xa7\x8c \xeb\x90\x98\xea\xb3\xa0..." (\xec\xa4\x84\xea\xb8\x80) | \xea\xb6\x8c\xed\x95\x9c \xed\x85\x8c\xec\x9d\xb4\xeb\xb8\x94(Table) + \xed\x9d\x90\xeb\xa6\x84\xeb\x8f\x84(Mermaid) |\r\n| \xec\x9a\x94\xea\xb5\xac\xec\x82\xac\xed\x95\xad \xeb\xb3\x80\xea\xb2\xbd \xec\x8b\x9c | \xeb\xac\xb8\xec\x84\x9c \xeb\xa7\xa8 \xec\x95\x84\xeb\x9e\x98\xec\x97\x90 `## \xec\xb6\x94\xea\xb0\x80 \xec\x9a\x94\xec\xb2\xad\xec\x82\xac\xed\x95\xad` \xec\x84\xb9\xec\x85\x98\xec\x9d\xb4 \xea\xb3\x84\xec\x86\x8d \xec\x83\x9d\xea\xb9\x80 (\xec\x8a\xa4\xed\x8c\x8c\xea\xb2\x8c\xed\x8b\xb0) | Decision \xeb\xb3\xb8\xeb\xac\xb8\xec\x9d\xb4 \xea\xb9\x94\xeb\x81\x94\xed\x95\x98\xea\xb2\x8c \xec\x88\x98\xec\xa0\x95\xeb\x90\x98\xea\xb3\xa0, \xec\x83\x81\xeb\x8b\xa8 Change Log\xeb\xa7\x8c \xed\x95\x9c \xec\xa4\x84 \xec\xb6\x94\xea\xb0\x80\xeb\x90\xa8 |\r\n| \xec\x9c\x84\xed\x97\x98\xed\x95\x9c \xec\x9e\x91\xec\x97\x85 \xec\x8b\x9c | AI\xea\xb0\x80 \xec\x9e\x84\xec\x9d\x98\xeb\xa1\x9c \xed\x8c\x90\xeb\x8b\xa8\xed\x95\xb4\xec\x84\x9c \xec\xa7\x84\xed\x96\x89\xed\x95\xa0 \xec\x88\x98 \xec\x9e\x88\xec\x9d\x8c | Ask First \xea\xb7\x9c\xec\xb9\x99\xec\x97\x90 \xea\xb1\xb8\xeb\xa0\xa4 "\xec\x9d\x98\xec\xa1\xb4\xec\x84\xb1\xec\x9d\x84 \xec\xb6\x94\xea\xb0\x80\xed\x95\xb4\xeb\x8f\x84 \xeb\x90\xa0\xea\xb9\x8c\xec\x9a\x94?"\xeb\x9d\xbc\xea\xb3\xa0 \xeb\xac\xbc\xec\x96\xb4\xeb\xb4\x84 |\r\n| \xea\xb0\x80\xeb\x8f\x85\xec\x84\xb1 | \xed\x9d\x91\xeb\xb0\xb1 \xed\x85\x8d\xec\x8a\xa4\xed\x8a\xb8 \xec\x9c\x84\xec\xa3\xbc\xeb\x9d\xbc \xeb\x88\x88\xec\x97\x90 \xec\x9e\x98 \xec\x95\x88 \xeb\x93\xa4\xec\x96\xb4\xec\x98\xb4 | \xec\x9d\xb4\xeb\xaa\xa8\xec\xa7\x80(\xf0\x9f\x93\x95, \xe2\x9c\xa8, \xf0\x9f\x92\xa1, \xe2\x9d\x93)\xec\x99\x80 \xec\x9a\x94\xec\x95\xbd \xeb\x8d\x95\xeb\xb6\x84\xec\x97\x90 \xed\x9b\x91\xec\x96\xb4\xeb\xb3\xb4\xea\xb8\xb0 \xed\x8e\xb8\xed\x95\xa8 |\r\n\r\n## Standard Template (Copy/Paste)\r\n```markdown\r\n# [Service Name] Requirements\r\n\r\n> **Service**: [Service name, e.g., Ingestion]\r\n> **Component**: [Component name, e.g., Classification Pipeline]\r\n> **Status**: [Draft / Active / Deprecated]\r\n\r\n---\r\n\r\n## 1. Overview\r\nBriefly describe what this document defines.\r\n\r\n## 2. Requirements\r\n\r\n### [REQ-AAA-001] [Feature Name]\r\n- **Description**: Clear statement of what must be done.\r\n- **Input**:\r\n  - `text` (str): input description\r\n- **Output**:\r\n  - `result` (dict): output description\r\n- **Logic/Rules**:\r\n  1. First rule\r\n  2. Second rule\r\n- **Acceptance Criteria**:\r\n  - [ ] Feature implemented\r\n  - [ ] Edge cases handled\r\n  - [ ] Tests passing\r\n\r\n### [REQ-AAA-002] [Feature Name]\r\n...\r\n\r\n## 3. Data Structures\r\n```python\r\n# Pydantic-style or JSON example\r\nclass OutputDTO:\r\n    id: str\r\n    value: int\r\n```\r\n\r\n## 4. References\r\nList related documents here.\r\n```\r\n""",\r\n\r\n    # =========================================================================\r\n    # 02_REQUIREMENTS (v2.3 - Smart Spec Edition)\r\n    # =========================================================================\r\n    "02_REQUIREMENTS/README.md": f"""# Requirements (Authority Layer)\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n>\r\n> \xec\x9d\xb4 \xed\x8f\xb4\xeb\x8d\x94\xeb\x8a\x94 **"\xeb\xac\xb4\xec\x97\x87\xec\x9d\x84 \xeb\xa7\x8c\xeb\x93\xa4 \xea\xb2\x83\xec\x9d\xb8\xea\xb0\x80?"**\xec\x9d\x98 **\xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95**\xec\x9d\x84 \xec\xa0\x80\xec\x9e\xa5\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n> \xeb\x85\xbc\xec\x9d\x98/\xec\xa1\xb0\xec\x9c\xa8 \xea\xb8\xb0\xeb\xa1\x9d\xec\x9d\x80 `discussions/`\xec\x97\x90 \xeb\xb6\x84\xeb\xa6\xac\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n## Authority Model (v2.3)\r\n\r\n```\r\n\xeb\xac\xb8\xec\x84\x9c \xeb\x93\xb1\xea\xb8\x89:\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 features/        \xe2\x86\x92 DECISION (Authority) - \xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95\xeb\xa7\x8c\r\n\xe2\x94\x82                      + Constraints & Boundaries (Optional)\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 business_rules/  \xe2\x86\x92 DECISION (Authority) - \xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95\xeb\xa7\x8c\r\n\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 discussions/     \xe2\x86\x92 DISCUSSION (Reference) - \xec\xa1\xb0\xec\x9c\xa8 \xea\xb8\xb0\xeb\xa1\x9d\r\n```\r\n\r\n### Smart Spec Integration (v2.3)\r\n- **Boundaries**: \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xec\xa0\x84\xec\x97\xad \xea\xb7\x9c\xec\xb9\x99\xec\x9d\x80 `01_CONVENTIONS.md`\xec\x9d\x98 Boundaries \xec\x84\xb9\xec\x85\x98\r\n- **Constraints**: \xea\xb8\xb0\xeb\x8a\xa5\xeb\xb3\x84 \xec\xb6\x94\xea\xb0\x80 \xec\xa0\x9c\xec\x95\xbd\xec\x9d\x80 \xea\xb0\x81 REQ\xec\x9d\x98 `Constraints & Boundaries` \xec\x84\xb9\xec\x85\x98 (Optional)\r\n\r\n### Why Separate?\r\n- **DECISION (features/, business_rules/)**: LLM\xec\x9d\xb4 \xeb\xb0\x98\xeb\x93\x9c\xec\x8b\x9c \xec\x9d\xbd\xec\x96\xb4\xec\x95\xbc \xed\x95\xa8\r\n- **DISCUSSION (discussions/)**: LLM\xec\x9d\xb4 \xea\xb8\xb0\xeb\xb3\xb8\xec\xa0\x81\xec\x9c\xbc\xeb\xa1\x9c \xec\x95\x88 \xec\x9d\xbd\xec\x9d\x8c. \xeb\xaa\x85\xec\x8b\x9c\xec\xa0\x81 \xec\xb0\xb8\xec\xa1\xb0 \xec\x8b\x9c\xeb\xa7\x8c.\r\n\r\n\xec\x9d\xb4\xeb\xa0\x87\xea\xb2\x8c \xeb\xb6\x84\xeb\xa6\xac\xed\x95\x98\xeb\xa9\xb4:\r\n1. \xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95\xec\x9d\xb4 \xeb\xaa\x85\xed\x99\x95\xed\x95\xb4\xec\xa7\x90\r\n2. LLM\xec\x9d\xb4 "\xeb\xac\xb4\xec\x97\x87\xec\x9d\xb4 \xea\xb2\xb0\xec\xa0\x95\xec\x9d\xb8\xec\xa7\x80" \xed\x99\x95\xeb\xa5\xa0\xec\xa0\x81 \xed\x8c\x90\xeb\x8b\xa8 \xeb\xb6\x88\xed\x95\x84\xec\x9a\x94\r\n3. \xed\x95\x84\xec\x88\x98 \xea\xb7\x9c\xec\xb9\x99 \xeb\x88\x84\xeb\x9d\xbd/\xea\xb3\xbc\xeb\x8b\xa4 \xec\xb0\xb8\xec\xa1\xb0 \xeb\xb0\xa9\xec\xa7\x80\r\n\r\n## Structure\r\n\r\n```\r\n02_REQUIREMENTS/\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 features/           # REQ-* (DECISION only)\r\n\xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 REQ-AUTH-001.md\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 business_rules/     # RULE-* (DECISION only)\r\n\xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 RULE-DATA-001.md\r\n\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 discussions/        # DISC-* (\xec\xa1\xb0\xec\x9c\xa8 \xea\xb8\xb0\xeb\xa1\x9d)\r\n    \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 DISC-AUTH-001.md\r\n```\r\n\r\n## Naming Convention (STRICT)\r\n\r\n| Type | Pattern | Example | Location |\r\n|------|---------|---------|----------|\r\n| Feature | `REQ-[DOMAIN]-[NNN].md` | `REQ-AUTH-001.md` | features/ |\r\n| Rule | `RULE-[DOMAIN]-[NNN].md` | `RULE-DATA-001.md` | business_rules/ |\r\n| Discussion | `DISC-[DOMAIN]-[NNN].md` | `DISC-AUTH-001.md` | discussions/ |\r\n\r\n## Must-Read Field (Required in v2.2)\r\n\r\n\xeb\xaa\xa8\xeb\x93\xa0 REQ/RULE \xeb\xac\xb8\xec\x84\x9c\xec\x97\x90\xeb\x8a\x94 `**Must-Read**` \xed\x95\x84\xeb\x93\x9c\xea\xb0\x80 \xed\x95\x84\xec\x88\x98\xec\x9e\x85\xeb\x8b\x88\xeb\x8b\xa4:\r\n\r\n```markdown\r\n> **Must-Read**: RULE-DATA-001, RULE-SEC-001, ADR-003\r\n```\r\n\r\n\xec\x9d\xb4 \xed\x95\x84\xeb\x93\x9c\xec\x97\x90 \xeb\x82\x98\xec\x97\xb4\xeb\x90\x9c \xeb\xac\xb8\xec\x84\x9c\xeb\x8a\x94 \xed\x95\xb4\xeb\x8b\xb9 REQ \xea\xb5\xac\xed\x98\x84 \xec\x8b\x9c **\xeb\xb0\x98\xeb\x93\x9c\xec\x8b\x9c** \xec\x9d\xbd\xec\x96\xb4\xec\x95\xbc \xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n- Must-Read allows only RULE/ADR IDs (CTX is P0 and not allowed here).\r\n- If you use markdown links, the link text must be the ID (e.g. `[RULE-DATA-001](path)`).\r\n""",\r\n\r\n    "02_REQUIREMENTS/features/README.md": f"""# Feature Requirements (DECISION)\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n>\r\n> \xec\x9d\xb4\xea\xb3\xb3\xec\x97\x90\xeb\x8a\x94 **\xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95**\xeb\xa7\x8c \xec\xa0\x80\xec\x9e\xa5\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n> \xeb\x85\xbc\xec\x9d\x98/\xeb\x8c\x80\xec\x95\x88 \xea\xb2\x80\xed\x86\xa0\xeb\x8a\x94 `../discussions/`\xec\x97\x90 \xec\x9e\x91\xec\x84\xb1\xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n\r\n## Template\r\n\r\n```markdown\r\n# [REQ-XXX-001] Feature Name\r\n\r\n> **ID**: REQ-XXX-001\r\n> **Domain**: (\xeb\x8f\x84\xeb\xa9\x94\xec\x9d\xb8)\r\n> **Status**: [Draft | Active | Deprecated]\r\n> **Last Updated**: YYYY-MM-DD\r\n> **Must-Read**: RULE-XXX-001, ADR-XXX\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## Decision (\xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95)\r\n\r\n(\xea\xb8\xb0\xeb\x8a\xa5\xec\x97\x90 \xeb\x8c\x80\xed\x95\x9c \xeb\xaa\x85\xed\x99\x95\xed\x95\x9c \xea\xb2\xb0\xec\xa0\x95. \xec\xa7\xa7\xea\xb3\xa0 \xeb\x8b\xa8\xeb\x8b\xa8\xed\x95\x98\xea\xb2\x8c.)\r\n\r\n## Input\r\n\r\n- `param1` (type): description\r\n\r\n## Output\r\n\r\n- `result` (type): description\r\n\r\n## Acceptance Criteria\r\n\r\n- [ ] Criterion 1\r\n- [ ] Criterion 2\r\n\r\n## Constraints & Boundaries (Optional)\r\n\r\n> \xec\x9d\xb4 \xea\xb8\xb0\xeb\x8a\xa5 \xea\xb5\xac\xed\x98\x84 \xec\x8b\x9c \xec\xa0\x81\xec\x9a\xa9\xeb\x90\x98\xeb\x8a\x94 \xed\x8a\xb9\xeb\xb3\x84\xed\x95\x9c \xec\xa0\x9c\xec\x95\xbd.\r\n> \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xec\xa0\x84\xec\x97\xad Boundaries(`01_CONVENTIONS.md`)\xeb\xa5\xbc \xeb\x84\x98\xec\x96\xb4\xec\x84\x9c\xeb\x8a\x94 \xea\xb2\xbd\xec\x9a\xb0\xeb\xa7\x8c \xec\x9e\x91\xec\x84\xb1.\r\n\r\n### \xe2\x9a\xa0\xef\xb8\x8f Ask First\r\n- (\xec\x9d\xb4 \xea\xb8\xb0\xeb\x8a\xa5\xec\x97\x90\xec\x84\x9c \xec\x82\xac\xeb\x9e\x8c \xec\x8a\xb9\xec\x9d\xb8\xec\x9d\xb4 \xed\x95\x84\xec\x9a\x94\xed\x95\x9c \xea\xb2\x83)\r\n\r\n### \xf0\x9f\x9a\xab Never\r\n- (\xec\x9d\xb4 \xea\xb8\xb0\xeb\x8a\xa5\xec\x97\x90\xec\x84\x9c \xec\xa0\x88\xeb\x8c\x80 \xea\xb8\x88\xec\xa7\x80)\r\n\r\n## Related\r\n\r\n- Discussion: [DISC-XXX-001](../discussions/DISC-XXX-001.md)\r\n- Tech Spec: [API Spec](../../03_TECH_SPECS/api_specs/)\r\n```\r\n\r\n## Rules\r\n\r\n1. **\xea\xb2\xb0\xec\xa0\x95\xeb\xa7\x8c \xec\xa0\x81\xeb\x8a\x94\xeb\x8b\xa4**: \xeb\x85\xbc\xec\x9d\x98/\xeb\x8c\x80\xec\x95\x88\xec\x9d\x80 discussions/\xec\x97\x90\r\n2. **\xec\xa7\xa7\xea\xb2\x8c \xec\x9c\xa0\xec\xa7\x80**: \xed\x95\x9c REQ = \xed\x95\x98\xeb\x82\x98\xec\x9d\x98 \xeb\xaa\x85\xed\x99\x95\xed\x95\x9c \xea\xb2\xb0\xec\xa0\x95\r\n3. **Must-Read \xed\x95\x84\xec\x88\x98**: RULE/ADR ID\xeb\xa7\x8c, \xeb\xa7\x81\xed\x81\xac \xed\x85\x8d\xec\x8a\xa4\xed\x8a\xb8\xeb\x8a\x94 ID\r\n4. **ID \xec\x9d\xbc\xec\xb9\x98**: \xed\x8c\x8c\xec\x9d\xbc\xeb\xaa\x85 = **ID**: = \xed\x97\xa4\xeb\x8d\x94 [ID]\r\n5. **Boundaries \xec\x84\xa0\xed\x83\x9d\xec\xa0\x81**: \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xec\xa0\x84\xec\x97\xad \xea\xb7\x9c\xec\xb9\x99 \xec\x99\xb8 \xec\xb6\x94\xea\xb0\x80 \xec\xa0\x9c\xec\x95\xbd \xec\x8b\x9c\xeb\xa7\x8c \xec\x9e\x91\xec\x84\xb1\r\n""",\r\n\r\n    "02_REQUIREMENTS/business_rules/README.md": f"""# Business Rules (DECISION)\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n>\r\n> \xeb\xb9\x84\xec\xa6\x88\xeb\x8b\x88\xec\x8a\xa4 \xeb\xa1\x9c\xec\xa7\x81, \xea\xb3\xb5\xec\x8b\x9d, \xeb\xb3\x80\xed\x95\x98\xec\xa7\x80 \xec\x95\x8a\xeb\x8a\x94 \xea\xb7\x9c\xec\xb9\x99\xec\x9d\x98 **\xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95**\xec\x9d\x84 \xec\xa0\x80\xec\x9e\xa5\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n## Template\r\n\r\n```markdown\r\n# [RULE-XXX-001] Rule Name\r\n\r\n> **ID**: RULE-XXX-001\r\n> **Domain**: (\xeb\x8f\x84\xeb\xa9\x94\xec\x9d\xb8)\r\n> **Priority**: [Critical | High | Medium | Low]\r\n> **Last Updated**: YYYY-MM-DD\r\n> **Must-Read**: RULE-XXX-001, ADR-XXX\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## Rule Statement (\xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95)\r\n\r\n(\xea\xb7\x9c\xec\xb9\x99\xec\x9d\x84 \xeb\xaa\x85\xed\x99\x95\xed\x95\x98\xea\xb2\x8c \xed\x95\x9c \xeb\xac\xb8\xec\x9e\xa5\xec\x9c\xbc\xeb\xa1\x9c)\r\n\r\n## Rationale\r\n\r\n(\xec\x99\x9c \xec\x9d\xb4 \xea\xb7\x9c\xec\xb9\x99\xec\x9d\xb4 \xed\x95\x84\xec\x9a\x94\xed\x95\x9c\xea\xb0\x80? \xea\xb0\x84\xeb\x8b\xa8\xed\x9e\x88)\r\n\r\n## Examples\r\n\r\n### Correct\r\n(\xec\x98\xac\xeb\xb0\x94\xeb\xa5\xb8 \xec\x98\x88\xec\x8b\x9c)\r\n\r\n### Incorrect\r\n(\xec\x9e\x98\xeb\xaa\xbb\xeb\x90\x9c \xec\x98\x88\xec\x8b\x9c)\r\n\r\n## Exceptions\r\n\r\n(\xec\x98\x88\xec\x99\xb8 \xec\x83\x81\xed\x99\xa9\xec\x9d\xb4 \xec\x9e\x88\xeb\x8b\xa4\xeb\xa9\xb4)\r\n```\r\n\r\n## Common Domains\r\n\r\n- **DATA**: \xeb\x8d\xb0\xec\x9d\xb4\xed\x84\xb0 \xed\x98\x95\xec\x8b\x9d, \xec\xa0\x80\xec\x9e\xa5 \xea\xb7\x9c\xec\xb9\x99\r\n- **PERF**: \xec\x84\xb1\xeb\x8a\xa5 \xec\xa0\x9c\xec\x95\xbd\r\n- **SEC**: \xeb\xb3\xb4\xec\x95\x88 \xea\xb7\x9c\xec\xb9\x99\r\n- **UX**: \xec\x82\xac\xec\x9a\xa9\xec\x9e\x90 \xea\xb2\xbd\xed\x97\x98 \xea\xb7\x9c\xec\xb9\x99\r\n""",\r\n\r\n    "02_REQUIREMENTS/discussions/README.md": f"""# Discussions (Reference Layer)\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n>\r\n> \xec\x82\xac\xeb\x9e\x8c-AI \xec\xa1\xb0\xec\x9c\xa8 \xea\xb8\xb0\xeb\xa1\x9d\xec\x9d\x84 \xec\xa0\x80\xec\x9e\xa5\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n> **LLM\xec\x9d\x80 \xea\xb8\xb0\xeb\xb3\xb8\xec\xa0\x81\xec\x9c\xbc\xeb\xa1\x9c \xec\x9d\xb4 \xed\x8f\xb4\xeb\x8d\x94\xeb\xa5\xbc \xec\x9d\xbd\xec\xa7\x80 \xec\x95\x8a\xec\x8a\xb5\xeb\x8b\x88\xeb\x8b\xa4.**\r\n\r\n## When to Use\r\n\r\n- \xec\x9a\x94\xea\xb5\xac\xec\x82\xac\xed\x95\xad \xeb\x85\xbc\xec\x9d\x98 \xea\xb3\xbc\xec\xa0\x95 \xea\xb8\xb0\xeb\xa1\x9d\r\n- \xeb\x8c\x80\xec\x95\x88 \xea\xb2\x80\xed\x86\xa0 \xeb\xb0\x8f \xeb\xb9\x84\xea\xb5\x90\r\n- \xea\xb2\xb0\xec\xa0\x95 \xea\xb7\xbc\xea\xb1\xb0 \xec\x83\x81\xec\x84\xb8 \xec\x84\xa4\xeb\xaa\x85\r\n- \xec\x9d\xb4\xed\x95\xb4\xea\xb4\x80\xea\xb3\x84\xec\x9e\x90 \xec\x9d\x98\xea\xb2\xac \xec\xa1\xb0\xec\x9c\xa8\r\n\r\n## Template\r\n\r\n```markdown\r\n# [DISC-XXX-001] Discussion Title\r\n\r\n> **ID**: DISC-XXX-001\r\n> **Related-REQ**: REQ-XXX-001 (or RULE-XXX-001)\r\n> **Date**: YYYY-MM-DD\r\n> **Participants**: (\xec\xb0\xb8\xec\x97\xac\xec\x9e\x90)\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## Context\r\n\r\n(\xeb\x85\xbc\xec\x9d\x98 \xeb\xb0\xb0\xea\xb2\xbd)\r\n\r\n## Options Considered\r\n\r\n### Option A: (\xeb\x8c\x80\xec\x95\x88 1)\r\n- Pros: ...\r\n- Cons: ...\r\n\r\n### Option B: (\xeb\x8c\x80\xec\x95\x88 2)\r\n- Pros: ...\r\n- Cons: ...\r\n\r\n## Discussion Log\r\n\r\n### YYYY-MM-DD\r\n- [Person/AI]: \xec\x9d\x98\xea\xb2\xac 1\r\n- [Person/AI]: \xec\x9d\x98\xea\xb2\xac 2\r\n\r\n## Conclusion\r\n\r\n(\xea\xb2\xb0\xeb\xa1\xa0 \xe2\x86\x92 REQ/RULE\xec\x97\x90 \xeb\xb0\x98\xec\x98\x81\xeb\x90\xa8)\r\n```\r\n\r\n## Important Notes\r\n\r\n1. **LLM \xea\xb8\xb0\xeb\xb3\xb8 \xeb\xac\xb4\xec\x8b\x9c**: \xeb\xaa\x85\xec\x8b\x9c\xec\xa0\x81\xec\x9c\xbc\xeb\xa1\x9c \xec\xb0\xb8\xec\xa1\xb0\xed\x95\x98\xec\xa7\x80 \xec\x95\x8a\xec\x9c\xbc\xeb\xa9\xb4 \xec\x9d\xbd\xec\xa7\x80 \xec\x95\x8a\xec\x9d\x8c\r\n2. **REQ\xec\x99\x80 \xec\x97\xb0\xea\xb2\xb0**: `Related-REQ` \xed\x95\x84\xeb\x93\x9c\xeb\xa1\x9c \xea\xb4\x80\xeb\xa0\xa8 \xea\xb2\xb0\xec\xa0\x95 \xeb\xac\xb8\xec\x84\x9c \xec\x97\xb0\xea\xb2\xb0\r\n3. **Archive \xec\xa0\x95\xec\xb1\x85**: \xec\x98\xa4\xeb\x9e\x98\xeb\x90\x9c \xeb\x85\xbc\xec\x9d\x98\xeb\x8a\x94 `99_ARCHIVE/discussions/`\xeb\xa1\x9c \xec\x9d\xb4\xeb\x8f\x99\r\n""",\r\n\r\n    # =========================================================================\r\n    # 03_TECH_SPECS\r\n    # =========================================================================\r\n    "03_TECH_SPECS/README.md": f"""# Technical Specifications (HOW)\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n>\r\n> **"\xec\x96\xb4\xeb\x96\xbb\xea\xb2\x8c \xeb\xa7\x8c\xeb\x93\xa4 \xea\xb2\x83\xec\x9d\xb8\xea\xb0\x80?"**\xeb\xa5\xbc \xec\xa0\x95\xec\x9d\x98\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n## Structure\r\n\r\n```\r\n03_TECH_SPECS/\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 architecture/       # \xea\xb5\xac\xec\xa1\xb0\xeb\x8f\x84, DB \xec\x8a\xa4\xed\x82\xa4\xeb\xa7\x88\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 api_specs/          # \xec\x9e\x85\xec\xb6\x9c\xeb\xa0\xa5 \xeb\xaa\x85\xec\x84\xb8\r\n\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 decisions/          # ADR (RATIONALE)\r\n```\r\n\r\n## Relation to Authority\r\n\r\n```\r\nREQ (Authority) \xe2\x86\x92 TECH_SPEC (Implementation) \xe2\x86\x92 CODE\r\n```\r\n\r\nTECH_SPEC\xec\x9d\x80 REQ\xec\x9d\x98 \xea\xb2\xb0\xec\xa0\x95\xec\x9d\x84 **\xea\xb5\xac\xed\x98\x84**\xed\x95\x98\xeb\x8a\x94 \xeb\xb0\xa9\xeb\xb2\x95\xec\x9d\x84 \xec\xa0\x95\xec\x9d\x98\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\nREQ\xec\x99\x80 \xec\xb6\xa9\xeb\x8f\x8c \xec\x8b\x9c, REQ\xea\xb0\x80 \xec\x9a\xb0\xec\x84\xa0\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n""",\r\n\r\n    "03_TECH_SPECS/architecture/README.md": f"""# Architecture Documents\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n## Template: System Architecture\r\n\r\n```markdown\r\n# System Architecture\r\n\r\n> **Last Updated**: YYYY-MM-DD\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## High-Level Diagram\r\n\r\n(ASCII \xeb\x8b\xa4\xec\x9d\xb4\xec\x96\xb4\xea\xb7\xb8\xeb\x9e\xa8 \xeb\x98\x90\xeb\x8a\x94 \xec\x9d\xb4\xeb\xaf\xb8\xec\xa7\x80 \xeb\xa7\x81\xed\x81\xac)\r\n\r\n## Components\r\n\r\n| Component | Responsibility | Technology |\r\n|-----------|---------------|------------|\r\n| Frontend | UI | React |\r\n| Backend | API | FastAPI |\r\n| Database | Storage | PostgreSQL |\r\n\r\n## Data Flow\r\n\r\n1. User -> Frontend\r\n2. Frontend -> Backend API\r\n3. Backend -> Database\r\n```\r\n""",\r\n\r\n    "03_TECH_SPECS/api_specs/README.md": f"""# API Specifications\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n## Template\r\n\r\n```markdown\r\n# [Module Name] API Specification\r\n\r\n> **Module**: (\xeb\xaa\xa8\xeb\x93\x88\xeb\xaa\x85)\r\n> **Last Updated**: YYYY-MM-DD\r\n> **Related-REQ**: REQ-XXX-001\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## Endpoints / Functions\r\n\r\n### `GET /api/users/{{id}}`\r\n\r\n- **Description**: \xec\x82\xac\xec\x9a\xa9\xec\x9e\x90 \xec\xa0\x95\xeb\xb3\xb4 \xec\xa1\xb0\xed\x9a\x8c\r\n- **Parameters**: `id` (UUID)\r\n- **Response**: User object\r\n- **Error Codes**: 404, 500\r\n```\r\n""",\r\n\r\n    "03_TECH_SPECS/decisions/README.md": f"""# Architecture Decision Records (RATIONALE)\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n>\r\n> \xea\xb8\xb0\xec\x88\xa0\xec\xa0\x81 \xec\x9d\x98\xec\x82\xac\xea\xb2\xb0\xec\xa0\x95\xea\xb3\xbc \xea\xb7\xb8 **\xea\xb7\xbc\xea\xb1\xb0**\xeb\xa5\xbc \xea\xb8\xb0\xeb\xa1\x9d\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n## Why ADR?\r\n\r\n"\xec\x99\x9c MongoDB \xeb\x8c\x80\xec\x8b\xa0 PostgreSQL\xec\x9d\x84 \xec\x8d\xbc\xeb\x8a\x94\xea\xb0\x80?"\xec\x97\x90 \xeb\x8c\x80\xed\x95\x9c \xeb\x8b\xb5\xec\x9d\x84 \xeb\x82\xa8\xea\xb9\x81\xeb\x8b\x88\xeb\x8b\xa4.\r\n\xea\xb5\xac\xec\xa1\xb0\xeb\xa5\xbc \xeb\x92\xa4\xec\xa7\x91\xec\x9d\x84 \xeb\x95\x8c, \xec\x9d\xb4 \xea\xb8\xb0\xeb\xa1\x9d\xec\x9d\x84 \xeb\xb3\xb4\xec\xa7\x80 \xec\x95\x8a\xec\x9c\xbc\xeb\xa9\xb4 \xea\xb0\x99\xec\x9d\x80 \xec\x8b\xa4\xec\x88\x98\xeb\xa5\xbc \xeb\xb0\x98\xeb\xb3\xb5\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n## Template\r\n\r\n```markdown\r\n# ADR-001: [Decision Title]\r\n\r\n> **Status**: [Proposed | Accepted | Deprecated | Superseded]\r\n> **Date**: YYYY-MM-DD\r\n> **Deciders**: (\xea\xb2\xb0\xec\xa0\x95\xec\x9e\x90)\r\n> **Related-REQ**: REQ-XXX-001\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## Context\r\n\r\n(\xeb\xac\xb8\xec\xa0\x9c \xec\x83\x81\xed\x99\xa9\xec\x9d\x84 \xec\x84\xa4\xeb\xaa\x85)\r\n\r\n## Decision\r\n\r\n(\xeb\xac\xb4\xec\x97\x87\xec\x9d\x84 \xea\xb2\xb0\xec\xa0\x95\xed\x96\x88\xeb\x8a\x94\xea\xb0\x80?)\r\n\r\n## Alternatives Considered\r\n\r\n### Option A\r\n- Pros: ...\r\n- Cons: ...\r\n\r\n### Option B\r\n- Pros: ...\r\n- Cons: ...\r\n\r\n## Consequences\r\n\r\n### Positive\r\n- ...\r\n\r\n### Negative\r\n- ...\r\n```\r\n""",\r\n\r\n    # =========================================================================\r\n    # 04_TASK_LOGS (v2.2 - Execution Unit)\r\n    # =========================================================================\r\n    "04_TASK_LOGS/README.md": f"""# Task Logs (Execution Layer)\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n>\r\n> \xec\x8b\xa4\xed\x96\x89 \xea\xb8\xb0\xeb\xa1\x9d\xec\x9d\x84 \xea\xb4\x80\xeb\xa6\xac\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n## Execution Unit Model (v2.2)\r\n\r\n```\r\n\xec\x8b\xa4\xed\x96\x89 \xeb\xac\xb8\xec\x84\x9c 1\xea\xb0\x9c = 1\xeb\xaa\xa9\xec\xa0\x81 + 1\xea\xb2\x80\xec\xa6\x9d + 1\xea\xb2\xb0\xea\xb3\xbc\r\n\r\nRUN-REQ-AUTH-001-step-01.md  (\xeb\xa1\x9c\xea\xb7\xb8\xec\x9d\xb8 \xed\x8f\xbc \xea\xb5\xac\xed\x98\x84)\r\nRUN-REQ-AUTH-001-step-02.md  (API \xec\x97\xb0\xeb\x8f\x99)\r\nRUN-REQ-AUTH-001-step-03.md  (\xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\x9e\x91\xec\x84\xb1)\r\n```\r\n\r\n### Why Small Units?\r\n\r\n- \xed\x81\xb0 RUN \xea\xb8\x88\xec\xa7\x80: \xed\x95\x9c\xeb\xb2\x88 \xec\x8b\xa4\xed\x96\x89\xec\x97\x90 \xeb\x84\x88\xeb\xac\xb4 \xeb\xa7\x8e\xec\x9d\x80 \xeb\xb3\x80\xea\xb2\xbd\xec\x9d\xb4 \xeb\xac\xb6\xec\x9d\xb4\xeb\xa9\xb4 \xec\xb6\x94\xec\xa0\x81 \xeb\xb6\x88\xea\xb0\x80\r\n- 1:1 \xeb\x8c\x80\xec\x9d\x91: \xeb\xb3\x80\xea\xb2\xbd \xec\x9d\xb4\xec\x9c\xa0\xeb\xa5\xbc \xeb\xaa\x85\xed\x99\x95\xed\x9e\x88 \xec\xb6\x94\xec\xa0\x81 \xea\xb0\x80\xeb\x8a\xa5\r\n- \xea\xb2\x80\xec\x83\x89 \xea\xb0\x80\xeb\x8a\xa5: \xeb\xa1\x9c\xea\xb7\xb8\xea\xb0\x80 \xec\x8c\x93\xec\x97\xac\xeb\x8f\x84 \xec\x9d\x98\xeb\xaf\xb8\xec\x9e\x88\xeb\x8a\x94 \xea\xb2\x80\xec\x83\x89\r\n\r\n## Structure\r\n\r\n```\r\n04_TASK_LOGS/\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 active/             # \xec\x8b\xa4\xed\x96\x89 \xec\xa4\x91 (RUN-*)\r\n\xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 RUN-REQ-AUTH-001-step-01.md\r\n\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 archive/            # \xec\x99\x84\xeb\xa3\x8c\xeb\x90\x9c \xec\x9e\x91\xec\x97\x85\r\n    \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 YYYY-MM/\r\n        \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 RUN-*.md\r\n```\r\n\r\n## Naming Convention\r\n\r\n`RUN-[REQ|RULE]-[DOMAIN]-[NNN]-step-[NN].md`\r\n\r\nExamples:\r\n- `RUN-REQ-AUTH-001-step-01.md`\r\n- `RUN-REQ-AUTH-001-step-02.md`\r\n- `RUN-RULE-DATA-001-step-01.md`\r\n""",\r\n\r\n    "04_TASK_LOGS/active/README.md": f"""# Active Tasks (Execution)\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n## RUN Document Template\r\n\r\n```markdown\r\n# [RUN-REQ-XXX-001-step-01] Step Title\r\n\r\n> **ID**: RUN-REQ-XXX-001-step-01\r\n> **Status**: [Active | Blocked | Done]\r\n> **Started**: YYYY-MM-DD\r\n> **Input**: REQ-XXX-001, RULE-YYY-001, 01_CONVENTIONS.md\r\n> **Verification**: (\xec\x84\xb1\xea\xb3\xb5 \xec\xa1\xb0\xea\xb1\xb4 - \xed\x95\x9c \xec\xa4\x84 \xec\x9a\x94\xec\x95\xbd)\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## Objective\r\n\r\n(\xec\x9d\xb4 \xeb\x8b\xa8\xea\xb3\x84\xec\x9d\x98 \xeb\xaa\xa9\xed\x91\x9c - \xed\x95\x98\xeb\x82\x98\xeb\xa7\x8c)\r\n\r\n## Steps\r\n\r\n1. [ ] Step 1\r\n2. [ ] Step 2\r\n\r\n## Verification (Self-Check)\r\n\r\n> \xec\x9e\x91\xec\x97\x85 \xec\x99\x84\xeb\xa3\x8c \xec\xa0\x84 \xeb\xb0\x98\xeb\x93\x9c\xec\x8b\x9c \xed\x99\x95\xec\x9d\xb8\xed\x95\x98\xeb\x8a\x94 \xec\xb2\xb4\xed\x81\xac\xeb\xa6\xac\xec\x8a\xa4\xed\x8a\xb8\r\n\r\n- [ ] **Test**: `pytest tests/test_xxx.py` \xed\x86\xb5\xea\xb3\xbc?\r\n- [ ] **Boundary**: Secret \xec\xbb\xa4\xeb\xb0\x8b \xec\x97\x86\xec\x9d\x8c? (`01_CONVENTIONS.md` Boundaries \xec\xa4\x80\xec\x88\x98?)\r\n- [ ] **Spec**: \xea\xb5\xac\xed\x98\x84\xec\x9d\xb4 `REQ-XXX-001`\xea\xb3\xbc \xec\x9d\xbc\xec\xb9\x98?\r\n\r\n### Success Condition\r\n(\xec\x84\xb1\xea\xb3\xb5 \xec\xa1\xb0\xea\xb1\xb4 \xec\x83\x81\xec\x84\xb8)\r\n\r\n## Output\r\n\r\n(\xec\x83\x9d\xec\x84\xb1/\xec\x88\x98\xec\xa0\x95\xeb\x90\x9c \xed\x8c\x8c\xec\x9d\xbc \xeb\xaa\xa9\xeb\xa1\x9d)\r\n\r\n- `src/auth/login.py` - Created\r\n- `tests/test_login.py` - Created\r\n```\r\n\r\n## Rules\r\n\r\n1. **1 RUN = 1 \xeb\xaa\xa9\xec\xa0\x81**: \xec\x97\xac\xeb\x9f\xac \xeb\xaa\xa9\xec\xa0\x81\xec\x9d\x84 \xec\x84\x9e\xec\xa7\x80 \xec\x95\x8a\xec\x9d\x8c\r\n2. **Input \xeb\xaa\x85\xec\x8b\x9c**: \xec\x9d\xbd\xec\x96\xb4\xec\x95\xbc \xed\x95\xa0 \xeb\xac\xb8\xec\x84\x9c ID \xeb\xaa\xa9\xeb\xa1\x9d (Must-Read \xed\x8f\xac\xed\x95\xa8)\r\n3. **Verification \xeb\xaa\x85\xec\x8b\x9c**: \xec\x84\xb1\xea\xb3\xb5 \xec\xa1\xb0\xea\xb1\xb4 + Self-Check \xec\xb2\xb4\xed\x81\xac\xeb\xa6\xac\xec\x8a\xa4\xed\x8a\xb8\r\n4. **Output \xea\xb8\xb0\xeb\xa1\x9d**: \xec\x83\x9d\xec\x84\xb1/\xec\x88\x98\xec\xa0\x95 \xed\x8c\x8c\xec\x9d\xbc \xeb\xaa\xa9\xeb\xa1\x9d\r\n5. **Self-Check \xed\x95\x84\xec\x88\x98**: \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8, Boundary, Spec \xec\x9d\xbc\xec\xb9\x98 \xed\x99\x95\xec\x9d\xb8\r\n""",\r\n\r\n    "04_TASK_LOGS/archive/README.md": f"""# Archived Tasks\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n## Structure\r\n\r\n```\r\narchive/\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 2024-01/\r\n\xe2\x94\x82   \xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 RUN-REQ-AUTH-001-step-01.md\r\n\xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 RUN-REQ-AUTH-001-step-02.md\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 2024-02/\r\n\xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 ...\r\n```\r\n\r\n## Archive Criteria\r\n\r\n- Status\xea\xb0\x80 `Done`\xec\x9c\xbc\xeb\xa1\x9c \xeb\xb3\x80\xea\xb2\xbd\xeb\x90\x9c RUN \xeb\xac\xb8\xec\x84\x9c\r\n- \xec\x9b\x94\xeb\xb3\x84\xeb\xa1\x9c \xec\x9e\x90\xeb\x8f\x99 \xec\xa0\x95\xeb\xa6\xac\r\n""",\r\n\r\n    # =========================================================================\r\n    # 98_KNOWLEDGE\r\n    # =========================================================================\r\n    "98_KNOWLEDGE/README.md": """# Knowledge Base (ASSET)\r\n\r\n> \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8\xeb\xa5\xbc \xec\xa7\x84\xed\x96\x89\xed\x95\x98\xeb\xa9\xb4\xec\x84\x9c \xeb\xb0\xb0\xec\x9a\xb4 **"\xec\x9d\xbc\xeb\xb0\x98\xec\xa0\x81\xec\x9d\xb8 \xec\xa7\x80\xec\x8b\x9d"**\xec\x9d\x84 \xec\xa0\x80\xec\x9e\xa5\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n## Why This Folder?\r\n\r\n- Task Log\xec\x97\x90 "\xed\x8c\x8c\xec\x9d\xb4\xec\x8d\xac asyncio \xec\x97\x90\xeb\x9f\xac \xed\x95\xb4\xea\xb2\xb0\xeb\xb2\x95"\xec\x9d\x84 \xec\xa0\x81\xec\x96\xb4\xeb\x91\x90\xeb\xa9\xb4, \xeb\x82\x98\xec\xa4\x91\xec\x97\x90 \xeb\xa1\x9c\xea\xb7\xb8\xea\xb0\x80 \xec\x8c\x93\xec\x97\xac\xec\x84\x9c \xea\xb2\x80\xec\x83\x89\xec\x9d\xb4 \xec\x95\x88 \xeb\x90\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n- \xeb\xb0\xb0\xec\x9a\xb4 \xec\xa0\x90\xec\x9d\x84 \xeb\xb3\x84\xeb\x8f\x84\xeb\xa1\x9c \xec\xa0\x80\xec\x9e\xa5\xed\x95\xb4\xec\x95\xbc \xea\xb3\xbc\xea\xb1\xb0\xec\x9d\x98 \xec\x8b\xa4\xec\x88\x98\xeb\xa5\xbc \xeb\xb0\x98\xeb\xb3\xb5\xed\x95\x98\xec\xa7\x80 \xec\x95\x8a\xec\x8a\xb5\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n## Structure\r\n\r\n```\r\n98_KNOWLEDGE/\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 troubleshooting/    # \xed\x95\xb4\xea\xb2\xb0\xeb\x90\x9c \xeb\x82\x9c\xec\xa0\x9c\xeb\x93\xa4\r\n\xe2\x94\x82   \xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 [topic]/        # \xec\xa3\xbc\xec\xa0\x9c\xeb\xb3\x84 \xeb\xb6\x84\xeb\xa5\x98\r\n\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 [other_topics]/     # \xed\x95\x84\xec\x9a\x94\xec\x97\x90 \xeb\x94\xb0\xeb\x9d\xbc \xec\xb6\x94\xea\xb0\x80\r\n```\r\n""",\r\n\r\n    "98_KNOWLEDGE/troubleshooting/README.md": f"""# Troubleshooting Guide\r\n\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n## Template\r\n\r\n```markdown\r\n# [Issue Title]\r\n\r\n> **Category**: [Python | JavaScript | Database | DevOps | ...]\r\n> **Date Discovered**: YYYY-MM-DD\r\n> **Related Task**: RUN-REQ-XXX-001-step-NN\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## Problem\r\n\r\n(\xeb\xac\xb8\xec\xa0\x9c \xec\x83\x81\xed\x99\xa9 \xec\x84\xa4\xeb\xaa\x85)\r\n\r\n## Root Cause\r\n\r\n(\xec\x9b\x90\xec\x9d\xb8 \xeb\xb6\x84\xec\x84\x9d)\r\n\r\n## Solution\r\n\r\n(\xed\x95\xb4\xea\xb2\xb0 \xeb\xb0\xa9\xeb\xb2\x95)\r\n\r\n## Prevention\r\n\r\n(\xeb\x8b\xa4\xec\x8b\x9c \xeb\xb0\x9c\xec\x83\x9d\xed\x95\x98\xec\xa7\x80 \xec\x95\x8a\xec\x9c\xbc\xeb\xa0\xa4\xeb\xa9\xb4?)\r\n```\r\n""",\r\n\r\n    # =========================================================================\r\n    # 00_SYSTEM\r\n    # =========================================================================\r\n    "00_SYSTEM/README.md": f"""# System Management\r\n\r\n> [!CAUTION]\r\n> ## SYSTEM-MANAGED FOLDER\r\n>\r\n> \xec\x9d\xb4 \xed\x8f\xb4\xeb\x8d\x94\xeb\x8a\x94 `memory_manager.py`\xec\x97\x90 \xec\x9d\x98\xed\x95\xb4 **\xec\x9e\x90\xeb\x8f\x99 \xea\xb4\x80\xeb\xa6\xac**\xeb\x90\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n>\r\n> ### Overwrite Policy\r\n> - **AGENT_RULES.md**: \xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c \xec\x97\x85\xeb\x8d\xb0\xec\x9d\xb4\xed\x8a\xb8 \xec\x8b\x9c \xeb\x8d\xae\xec\x96\xb4\xec\x93\xb0\xea\xb8\xb0\xeb\x90\xa8\r\n> - **scripts/**: \xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c \xec\x97\x85\xeb\x8d\xb0\xec\x9d\xb4\xed\x8a\xb8 \xec\x8b\x9c \xeb\x8d\xae\xec\x96\xb4\xec\x93\xb0\xea\xb8\xb0\xeb\x90\xa8\r\n> - \xec\x82\xac\xec\x9a\xa9\xec\x9e\x90/\xec\x97\x90\xec\x9d\xb4\xec\xa0\x84\xed\x8a\xb8 \xec\x88\x98\xec\xa0\x95 -> \xeb\x8b\xa4\xec\x9d\x8c \xec\x97\x85\xeb\x8d\xb0\xec\x9d\xb4\xed\x8a\xb8\xec\x97\x90\xec\x84\x9c \xec\x9b\x90\xeb\xb3\xb5\r\n>\r\n> ### For Customization\r\n> \xec\xbb\xa4\xec\x8a\xa4\xed\x85\x80 \xea\xb7\x9c\xec\xb9\x99\xec\x9d\xb4 \xed\x95\x84\xec\x9a\x94\xed\x95\x98\xeb\xa9\xb4 `01_PROJECT_CONTEXT/01_CONVENTIONS.md`\xec\x97\x90 \xec\x9e\x91\xec\x84\xb1\xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n\r\n## Version Info\r\n\r\n- **Manager Version**: {CURRENT_VERSION}\r\n- **Template Version**: {TEMPLATE_VERSION}\r\n""",\r\n}\r\n\r\n# ============================================================================\r\n# BOOTSTRAP TEMPLATES (v2.4 - Context Bootstrapping)\r\n# ============================================================================\r\nBOOTSTRAP_PROMPT_TEMPLATE = f"""# \xf0\x9f\x9a\x80 \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xed\x82\xa5\xec\x98\xa4\xed\x94\x84 (Context Bootstrapping)\r\n\r\n> **MemoryAtlas v{CURRENT_VERSION}**\r\n>\r\n> \xec\x9d\xb4 \xed\x8c\x8c\xec\x9d\xbc\xec\x9d\x84 AI \xec\x97\x90\xec\x9d\xb4\xec\xa0\x84\xed\x8a\xb8(Claude, GPT \xeb\x93\xb1)\xec\x97\x90\xea\xb2\x8c \xec\xa0\x84\xeb\x8b\xac\xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n> AI\xea\xb0\x80 \xec\x95\x84\xeb\x9e\x98 \xec\xa3\xbc\xec\xa0\x9c\xeb\xa1\x9c \xec\x9d\xb8\xed\x84\xb0\xeb\xb7\xb0 \xed\x9b\x84, \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xed\x97\x8c\xeb\xb2\x95\xec\x9d\x84 \xec\x99\x84\xec\x84\xb1\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n\r\n---\r\n\r\n## \xec\x82\xac\xec\x9a\xa9 \xeb\xb0\xa9\xeb\xb2\x95\r\n\r\n1. \xec\x9d\xb4 \xed\x8c\x8c\xec\x9d\xbc \xeb\x82\xb4\xec\x9a\xa9\xec\x9d\x84 AI \xec\xb1\x84\xed\x8c\x85\xec\xb0\xbd\xec\x97\x90 \xeb\xb3\xb5\xec\x82\xac\xed\x95\x98\xea\xb1\xb0\xeb\x82\x98, AI\xec\x97\x90\xea\xb2\x8c \xec\x9d\xb4 \xed\x8c\x8c\xec\x9d\xbc\xec\x9d\x84 \xec\x9d\xbd\xea\xb2\x8c \xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n2. AI\xea\xb0\x80 \xec\x95\x84\xeb\x9e\x98 \xec\x95\x84\xec\xa0\xa0\xeb\x8b\xa4\xec\x97\x90 \xeb\x94\xb0\xeb\x9d\xbc \xec\xa7\x88\xeb\xac\xb8\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n3. \xeb\x8c\x80\xed\x99\x94\xea\xb0\x80 \xeb\x81\x9d\xeb\x82\x98\xeb\xa9\xb4 AI\xea\xb0\x80 \xec\x99\x84\xec\x84\xb1\xeb\x90\x9c \xeb\xac\xb8\xec\x84\x9c\xeb\xa5\xbc \xec\xb6\x9c\xeb\xa0\xa5\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.\r\n4. \xec\xb6\x9c\xeb\xa0\xa5\xeb\x90\x9c \xeb\x82\xb4\xec\x9a\xa9\xec\x9d\x84 \xed\x95\xb4\xeb\x8b\xb9 \xed\x8c\x8c\xec\x9d\xbc\xec\x97\x90 \xec\xa0\x80\xec\x9e\xa5\xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n5. `python memory_manager.py --doctor`\xeb\xa1\x9c \xea\xb2\x80\xec\xa6\x9d\xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n\r\n---\r\n\r\n## \xf0\x9f\x8e\xaf \xed\x86\xa0\xec\x9d\x98 \xec\x95\x84\xec\xa0\xa0\xeb\x8b\xa4 (AI\xec\x97\x90\xea\xb2\x8c \xec\xa0\x84\xeb\x8b\xac\xed\x95\xa0 \xeb\x82\xb4\xec\x9a\xa9)\r\n\r\n### 1. Project Identity (\xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xec\xa0\x95\xec\xb2\xb4\xec\x84\xb1)\r\n\r\n\xeb\x82\x98\xec\x97\x90\xea\xb2\x8c \xeb\x8b\xa4\xec\x9d\x8c\xec\x9d\x84 \xec\xa7\x88\xeb\xac\xb8\xed\x95\xb4\xec\xa3\xbc\xec\x84\xb8\xec\x9a\x94:\r\n- \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xec\x9d\xb4\xeb\xa6\x84\xec\x9d\x80 \xeb\xac\xb4\xec\x97\x87\xec\x9d\xb8\xea\xb0\x80\xec\x9a\x94?\r\n- \xed\x95\x9c \xeb\xac\xb8\xec\x9e\xa5\xec\x9c\xbc\xeb\xa1\x9c \xec\x84\xa4\xeb\xaa\x85\xed\x95\x98\xeb\xa9\xb4?\r\n- \xec\xa3\xbc\xec\x9a\x94 \xec\x82\xac\xec\x9a\xa9\xec\x9e\x90\xeb\x8a\x94 \xeb\x88\x84\xea\xb5\xac\xec\x9d\xb8\xea\xb0\x80\xec\x9a\x94?\r\n- \xed\x95\xb5\xec\x8b\xac \xea\xb0\x80\xec\xb9\x98/\xeb\xaa\xa9\xed\x91\x9c\xeb\x8a\x94 \xeb\xac\xb4\xec\x97\x87\xec\x9d\xb8\xea\xb0\x80\xec\x9a\x94?\r\n\r\n### 2. Tech Stack (\xea\xb8\xb0\xec\x88\xa0 \xec\x8a\xa4\xed\x83\x9d)\r\n\r\n\xeb\x82\x98\xec\x97\x90\xea\xb2\x8c \xeb\x8b\xa4\xec\x9d\x8c\xec\x9d\x84 \xec\xa7\x88\xeb\xac\xb8\xed\x95\xb4\xec\xa3\xbc\xec\x84\xb8\xec\x9a\x94:\r\n- \xed\x94\x84\xeb\xa1\x9c\xea\xb7\xb8\xeb\x9e\x98\xeb\xb0\x8d \xec\x96\xb8\xec\x96\xb4\xeb\x8a\x94? (Python, TypeScript, Go \xeb\x93\xb1)\r\n- \xed\x94\x84\xeb\xa0\x88\xec\x9e\x84\xec\x9b\x8c\xed\x81\xac\xeb\x8a\x94? (FastAPI, Django, React, Next.js \xeb\x93\xb1)\r\n- \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xeb\x8f\x84\xea\xb5\xac\xeb\x8a\x94? (pytest, jest, vitest \xeb\x93\xb1)\r\n- \xeb\xa6\xb0\xed\x84\xb0/\xed\x8f\xac\xeb\xa7\xa4\xed\x84\xb0\xeb\x8a\x94? (ruff, black, eslint, prettier \xeb\x93\xb1)\r\n- \xeb\xb9\x8c\xeb\x93\x9c/\xeb\xb0\xb0\xed\x8f\xac \xeb\x8f\x84\xea\xb5\xac\xeb\x8a\x94?\r\n\r\n### 3. Smart Spec Boundaries (\xea\xb2\xbd\xea\xb3\x84 \xec\x84\xa4\xec\xa0\x95) \xe2\xad\x90\r\n\r\n**\xea\xb0\x80\xec\x9e\xa5 \xec\xa4\x91\xec\x9a\x94\xed\x95\xa9\xeb\x8b\x88\xeb\x8b\xa4.** \xeb\x82\x98\xec\x97\x90\xea\xb2\x8c \xeb\x8b\xa4\xec\x9d\x8c\xec\x9d\x84 \xec\xa7\x88\xeb\xac\xb8\xed\x95\xb4\xec\xa3\xbc\xec\x84\xb8\xec\x9a\x94:\r\n\r\n#### \xe2\x9c\x85 Always (AI\xea\xb0\x80 \xed\x95\xad\xec\x83\x81 \xed\x95\xb4\xec\x95\xbc \xed\x95\xa0 \xea\xb2\x83)\r\n- \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xea\xb4\x80\xeb\xa0\xa8 \xea\xb7\x9c\xec\xb9\x99\xec\x9d\x80?\r\n- \xec\xbd\x94\xeb\x93\x9c \xed\x92\x88\xec\xa7\x88 \xea\xb4\x80\xeb\xa0\xa8 \xea\xb7\x9c\xec\xb9\x99\xec\x9d\x80?\r\n- \xeb\xac\xb8\xec\x84\x9c\xed\x99\x94 \xea\xb4\x80\xeb\xa0\xa8 \xea\xb7\x9c\xec\xb9\x99\xec\x9d\x80?\r\n\r\n#### \xe2\x9a\xa0\xef\xb8\x8f Ask First (\xec\x82\xac\xec\xa0\x84 \xec\x8a\xb9\xec\x9d\xb8 \xed\x95\x84\xec\x9a\x94)\r\n- \xec\x96\xb4\xeb\x96\xa4 \xeb\xb3\x80\xea\xb2\xbd\xec\x97\x90 \xeb\x8c\x80\xed\x95\xb4 \xeb\xa8\xbc\xec\xa0\x80 \xeb\xac\xbc\xec\x96\xb4\xeb\xb4\x90\xec\x95\xbc \xed\x95\x98\xeb\x82\x98\xec\x9a\x94?\r\n- \xec\x9d\x98\xec\xa1\xb4\xec\x84\xb1 \xec\xb6\x94\xea\xb0\x80/\xec\x82\xad\xec\xa0\x9c\xeb\x8a\x94 \xec\x96\xb4\xeb\x96\xbb\xea\xb2\x8c?\r\n- DB\xeb\x82\x98 API \xeb\xb3\x80\xea\xb2\xbd\xec\x9d\x80?\r\n\r\n#### \xf0\x9f\x9a\xab Never (\xec\xa0\x88\xeb\x8c\x80 \xea\xb8\x88\xec\xa7\x80)\r\n- \xec\x9d\xb4 \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8\xec\x97\x90\xec\x84\x9c \xec\xa0\x88\xeb\x8c\x80 \xed\x95\x98\xeb\xa9\xb4 \xec\x95\x88 \xeb\x90\x98\xeb\x8a\x94 \xea\xb2\x83\xec\x9d\x80?\r\n- \xeb\xb3\xb4\xec\x95\x88 \xea\xb4\x80\xeb\xa0\xa8 \xea\xb8\x88\xec\xa7\x80 \xec\x82\xac\xed\x95\xad\xec\x9d\x80?\r\n- \xeb\x8d\xb0\xec\x9d\xb4\xed\x84\xb0 \xea\xb4\x80\xeb\xa0\xa8 \xea\xb8\x88\xec\xa7\x80 \xec\x82\xac\xed\x95\xad\xec\x9d\x80?\r\n\r\n### 4. Project Structure (\xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xea\xb5\xac\xec\xa1\xb0)\r\n\r\n\xeb\x82\x98\xec\x97\x90\xea\xb2\x8c \xeb\x8b\xa4\xec\x9d\x8c\xec\x9d\x84 \xec\xa7\x88\xeb\xac\xb8\xed\x95\xb4\xec\xa3\xbc\xec\x84\xb8\xec\x9a\x94:\r\n- \xec\x86\x8c\xec\x8a\xa4 \xec\xbd\x94\xeb\x93\x9c \xed\x8f\xb4\xeb\x8d\x94 \xea\xb5\xac\xec\xa1\xb0\xeb\x8a\x94?\r\n- \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xed\x8f\xb4\xeb\x8d\x94 \xea\xb5\xac\xec\xa1\xb0\xeb\x8a\x94?\r\n- \xec\x84\xa4\xec\xa0\x95 \xed\x8c\x8c\xec\x9d\xbc\xeb\x93\xa4\xec\x9d\x80 \xec\x96\xb4\xeb\x94\x94\xec\x97\x90?\r\n\r\n### 5. Git Workflow (Git \xea\xb7\x9c\xec\xb9\x99)\r\n\r\n\xeb\x82\x98\xec\x97\x90\xea\xb2\x8c \xeb\x8b\xa4\xec\x9d\x8c\xec\x9d\x84 \xec\xa7\x88\xeb\xac\xb8\xed\x95\xb4\xec\xa3\xbc\xec\x84\xb8\xec\x9a\x94:\r\n- \xeb\xb8\x8c\xeb\x9e\x9c\xec\xb9\x98 \xeb\x84\xa4\xec\x9d\xb4\xeb\xb0\x8d \xea\xb7\x9c\xec\xb9\x99\xec\x9d\x80?\r\n- \xec\xbb\xa4\xeb\xb0\x8b \xeb\xa9\x94\xec\x8b\x9c\xec\xa7\x80 \xed\x98\x95\xec\x8b\x9d\xec\x9d\x80?\r\n- PR \xea\xb7\x9c\xec\xb9\x99\xec\x9d\x80?\r\n\r\n---\r\n\r\n## \xf0\x9f\x93\x8b AI\xec\x97\x90\xea\xb2\x8c \xec\xa7\x80\xec\x8b\x9c\r\n\r\n\xec\x9c\x84 \xec\x95\x84\xec\xa0\xa0\xeb\x8b\xa4\xec\x97\x90 \xeb\x94\xb0\xeb\x9d\xbc \xeb\x82\x98\xeb\xa5\xbc \xec\x9d\xb8\xed\x84\xb0\xeb\xb7\xb0\xed\x95\x9c \xed\x9b\x84, **\xeb\x8b\xa4\xec\x9d\x8c 2\xea\xb0\x9c \xed\x8c\x8c\xec\x9d\xbc\xec\x9d\x84 \xec\x99\x84\xec\x84\xb1\xeb\x90\x9c \xed\x98\x95\xed\x83\x9c\xeb\xa1\x9c \xec\xb6\x9c\xeb\xa0\xa5**\xed\x95\xb4\xec\xa3\xbc\xec\x84\xb8\xec\x9a\x94:\r\n\r\n1. **`01_PROJECT_CONTEXT/00_GOALS.md`**\r\n   - \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xec\xa0\x95\xec\xb2\xb4\xec\x84\xb1, \xeb\xaa\xa9\xed\x91\x9c, \xeb\xb2\x94\xec\x9c\x84\r\n\r\n2. **`01_PROJECT_CONTEXT/01_CONVENTIONS.md`**\r\n   - Commands \xed\x85\x8c\xec\x9d\xb4\xeb\xb8\x94 (\xec\x8b\xa4\xec\xa0\x9c \xeb\xaa\x85\xeb\xa0\xb9\xec\x96\xb4\xeb\xa1\x9c \xec\xb1\x84\xec\x9b\x80)\r\n   - Project Structure (\xec\x8b\xa4\xec\xa0\x9c \xea\xb5\xac\xec\xa1\xb0\xeb\xa1\x9c \xec\xb1\x84\xec\x9b\x80)\r\n   - Code Style (\xec\x8b\xa4\xec\xa0\x9c \xeb\x8f\x84\xea\xb5\xac\xec\x99\x80 \xea\xb7\x9c\xec\xb9\x99\xec\x9c\xbc\xeb\xa1\x9c \xec\xb1\x84\xec\x9b\x80)\r\n   - Testing Strategy (\xec\x8b\xa4\xec\xa0\x9c \xec\xa0\x84\xeb\x9e\xb5\xec\x9c\xbc\xeb\xa1\x9c \xec\xb1\x84\xec\x9b\x80)\r\n   - Git Workflow (\xec\x8b\xa4\xec\xa0\x9c \xea\xb7\x9c\xec\xb9\x99\xec\x9c\xbc\xeb\xa1\x9c \xec\xb1\x84\xec\x9b\x80)\r\n   - **Boundaries** (\xec\x9d\xb8\xed\x84\xb0\xeb\xb7\xb0 \xea\xb2\xb0\xea\xb3\xbc\xeb\xa1\x9c \xec\xb1\x84\xec\x9b\x80) \xe2\xad\x90\r\n\r\n---\r\n\r\n## \xe2\x9a\xa0\xef\xb8\x8f \xec\xa3\xbc\xec\x9d\x98\xec\x82\xac\xed\x95\xad\r\n\r\n- \xea\xb8\xb0\xeb\xb3\xb8 \xed\x85\x9c\xed\x94\x8c\xeb\xa6\xbf\xec\x9d\x98 \xec\x98\x88\xec\x8b\x9c\xea\xb0\x80 \xec\x95\x84\xeb\x8b\x8c, **\xec\x8b\xa4\xec\xa0\x9c \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8\xec\x97\x90 \xeb\xa7\x9e\xeb\x8a\x94 \xeb\x82\xb4\xec\x9a\xa9**\xec\x9c\xbc\xeb\xa1\x9c \xec\xb1\x84\xec\x9b\x8c\xec\xa3\xbc\xec\x84\xb8\xec\x9a\x94.\r\n- Boundaries\xeb\x8a\x94 \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xed\x8a\xb9\xec\x84\xb1\xec\x97\x90 \xeb\xa7\x9e\xea\xb2\x8c \xea\xb5\xac\xec\xb2\xb4\xec\xa0\x81\xec\x9c\xbc\xeb\xa1\x9c \xec\x9e\x91\xec\x84\xb1\xed\x95\xb4\xec\xa3\xbc\xec\x84\xb8\xec\x9a\x94.\r\n- \xeb\xb6\x88\xed\x99\x95\xec\x8b\xa4\xed\x95\x9c \xeb\xb6\x80\xeb\xb6\x84\xec\x9d\x80 `[TODO: \xed\x99\x95\xec\xa0\x95 \xed\x95\x84\xec\x9a\x94]`\xeb\xa1\x9c \xed\x91\x9c\xec\x8b\x9c\xed\x95\xb4\xec\xa3\xbc\xec\x84\xb8\xec\x9a\x94.\r\n\r\n---\r\n\r\n## \xec\x99\x84\xeb\xa3\x8c \xed\x9b\x84\r\n\r\n1. AI\xea\xb0\x80 \xec\xb6\x9c\xeb\xa0\xa5\xed\x95\x9c \xeb\x82\xb4\xec\x9a\xa9\xec\x9d\x84 \xea\xb0\x81 \xed\x8c\x8c\xec\x9d\xbc\xec\x97\x90 \xec\xa0\x80\xec\x9e\xa5\r\n2. `python memory_manager.py --doctor` \xec\x8b\xa4\xed\x96\x89\xed\x95\x98\xec\x97\xac \xea\xb2\x80\xec\xa6\x9d\r\n3. \xec\x9d\xb4 \xed\x8c\x8c\xec\x9d\xbc(`BOOTSTRAP_PROMPT.md`)\xec\x9d\x80 \xec\x82\xad\xec\xa0\x9c\xed\x95\x98\xea\xb1\xb0\xeb\x82\x98 `99_ARCHIVE/`\xeb\xa1\x9c \xec\x9d\xb4\xeb\x8f\x99\r\n"""\r\n\r\nBOOTSTRAP_CONVENTIONS_TEMPLATE = f"""# Coding Conventions & Rules (Smart Spec)\r\n\r\n> **ID**: CTX-CONV-001\r\n> **Last Updated**: [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## 1. Commands (\xec\x8b\xa4\xed\x96\x89 \xeb\xaa\x85\xeb\xa0\xb9\xec\x96\xb4)\r\n\r\n> [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n| Action | Command | Description |\r\n|--------|---------|-------------|\r\n| **Test** | `[TODO]` | Run all unit tests |\r\n| **Test (specific)** | `[TODO]` | Run specific test file |\r\n| **Lint** | `[TODO]` | Check code style |\r\n| **Format** | `[TODO]` | Auto-format code |\r\n| **Run** | `[TODO]` | Run the application |\r\n| **Build** | `[TODO]` | Build for production |\r\n\r\n---\r\n\r\n## 2. Project Structure (\xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xea\xb5\xac\xec\xa1\xb0)\r\n\r\n> [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n```\r\nproject_root/\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 [TODO]/              # \xec\x86\x8c\xec\x8a\xa4 \xec\xbd\x94\xeb\x93\x9c\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 [TODO]/              # \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\xbd\x94\xeb\x93\x9c\r\n\xe2\x94\x9c\xe2\x94\x80\xe2\x94\x80 .memory/             # \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xeb\xac\xb8\xec\x84\x9c (MemoryAtlas)\r\n\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 [TODO]               # \xea\xb8\xb0\xed\x83\x80 \xed\x8c\x8c\xec\x9d\xbc\xeb\x93\xa4\r\n```\r\n\r\n---\r\n\r\n## 3. Code Style (\xec\xbd\x94\xeb\x93\x9c \xec\x8a\xa4\xed\x83\x80\xec\x9d\xbc)\r\n\r\n> [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n### [Language]\r\n- **Formatter**: `[TODO]`\r\n- **Linter**: `[TODO]`\r\n- **Type Hints**: [TODO]\r\n- **Docstrings**: [TODO]\r\n\r\n### Naming Conventions\r\n| Type | Style | Example |\r\n|------|-------|---------|\r\n| Variables/Functions | `[TODO]` | |\r\n| Classes | `[TODO]` | |\r\n| Constants | `[TODO]` | |\r\n| Files | `[TODO]` | |\r\n\r\n---\r\n\r\n## 4. Testing Strategy (\xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\xa0\x84\xeb\x9e\xb5)\r\n\r\n> [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n### Requirements\r\n- [TODO]\r\n\r\n### Coverage\r\n- \xeb\xaa\xa9\xed\x91\x9c: [TODO]\r\n\r\n---\r\n\r\n## 5. Git Workflow (Git \xea\xb7\x9c\xec\xb9\x99)\r\n\r\n> [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n### Branch Naming\r\n- Feature: `[TODO]`\r\n- Bugfix: `[TODO]`\r\n\r\n### Commit Messages\r\n- Format: `[TODO]`\r\n\r\n---\r\n\r\n## 6. Smart Spec Boundaries (STRICT)\r\n\r\n### \xe2\x9c\x85 Always (\xed\x95\xad\xec\x83\x81 \xec\x88\x98\xed\x96\x89)\r\n- `RUN` \xeb\xac\xb8\xec\x84\x9c \xec\x9e\x91\xec\x84\xb1 \xec\x8b\x9c `Verification` \xec\x84\xb9\xec\x85\x98\xec\x97\x90 \xea\xb5\xac\xec\xb2\xb4\xec\xa0\x81\xec\x9d\xb8 **\xea\xb2\x80\xec\xa6\x9d \xeb\xaa\x85\xeb\xa0\xb9\xec\x96\xb4**\xeb\xa5\xbc \xed\x8f\xac\xed\x95\xa8\xed\x95\xa0 \xea\xb2\x83. (\xec\x98\x88: `pytest tests/auth/`)\r\n- \xeb\xaa\xa8\xeb\x93\xa0 \xed\x8d\xbc\xeb\xb8\x94\xeb\xa6\xad API/\xed\x95\xa8\xec\x88\x98\xec\x97\x90\xeb\x8a\x94 **Docstring**\xea\xb3\xbc **Type Hint**\xeb\xa5\xbc \xed\x8f\xac\xed\x95\xa8\xed\x95\xa0 \xea\xb2\x83.\r\n\r\n### \xf0\x9f\x99\x8b Ask First (\xeb\xac\xbc\xec\x96\xb4\xeb\xb3\xbc \xea\xb2\x83)\r\n- `requirements.txt`, `package.json` \xeb\x93\xb1 **\xec\x9d\x98\xec\xa1\xb4\xec\x84\xb1 \xec\xb6\x94\xea\xb0\x80/\xeb\xb3\x80\xea\xb2\xbd**.\r\n- **DB \xec\x8a\xa4\xed\x82\xa4\xeb\xa7\x88 \xeb\xb3\x80\xea\xb2\xbd** (`migration` \xed\x8c\x8c\xec\x9d\xbc \xec\x83\x9d\xec\x84\xb1).\r\n- \xea\xb8\xb0\xec\xa1\xb4 `01_CONVENTIONS`\xeb\x82\x98 \xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c \xed\x85\x9c\xed\x94\x8c\xeb\xa6\xbf \xec\x88\x98\xec\xa0\x95.\r\n\r\n### \xf0\x9f\x9a\xab Never (\xec\xa0\x88\xeb\x8c\x80 \xea\xb8\x88\xec\xa7\x80)\r\n- **Secret Key**, Password, API Key\xeb\xa5\xbc \xec\xbd\x94\xeb\x93\x9c\xeb\x82\x98 \xeb\xac\xb8\xec\x84\x9c\xec\x97\x90 \xed\x95\x98\xeb\x93\x9c\xec\xbd\x94\xeb\x94\xa9.\r\n- **Mock Data**\xeb\xa5\xbc \xed\x94\x84\xeb\xa1\x9c\xeb\x8d\x95\xec\x85\x98 \xec\xbd\x94\xeb\x93\x9c\xec\x97\x90 \xeb\x82\xa8\xea\xb8\xb0\xeb\x8a\x94 \xed\x96\x89\xec\x9c\x84.\r\n- `REQ` \xeb\xac\xb8\xec\x84\x9c\xec\x9d\x98 **Decision** \xec\x84\xb9\xec\x85\x98\xec\x9d\x84 \xec\x88\x98\xec\xa0\x95\xed\x95\x98\xec\xa7\x80 \xec\x95\x8a\xea\xb3\xa0 \xed\x95\x98\xeb\x8b\xa8\xec\x97\x90 "\xec\xb6\x94\xea\xb0\x80 \xec\x82\xac\xed\x95\xad"\xec\x9c\xbc\xeb\xa1\x9c \xeb\x8d\xa7\xeb\xb6\x99\xec\x9d\xb4\xeb\x8a\x94 \xed\x96\x89\xec\x9c\x84.\r\n\r\n---\r\n\r\n## 7. Documentation Maintenance Policy\r\n1. **SSOT (Single Source of Truth)**: `REQ` \xeb\xac\xb8\xec\x84\x9c\xeb\x8a\x94 \xed\x95\xad\xec\x83\x81 **\xed\x98\x84\xec\x9e\xac \xec\x8b\x9c\xec\xa0\x90\xec\x9d\x98 \xec\xb5\x9c\xec\xa2\x85 \xeb\xaa\x85\xec\x84\xb8**\xec\x97\xac\xec\x95\xbc \xed\x95\x9c\xeb\x8b\xa4.\r\n2. **Rewrite, Don\'t Append**: \xec\x9a\x94\xea\xb5\xac\xec\x82\xac\xed\x95\xad\xec\x9d\xb4 \xeb\xb3\x80\xea\xb2\xbd\xeb\x90\x98\xeb\xa9\xb4 \xea\xb8\xb0\xec\xa1\xb4 \xed\x85\x8d\xec\x8a\xa4\xed\x8a\xb8\xeb\xa5\xbc \xec\x88\x98\xec\xa0\x95(Refactor)\xed\x95\x98\xeb\x9d\xbc. \xeb\xb0\x91\xec\x97\x90 "Update 1..." \xec\x8b\x9d\xec\x9c\xbc\xeb\xa1\x9c \xeb\x8d\xa7\xeb\xb6\x99\xec\x9d\xb4\xec\xa7\x80 \xeb\xa7\x88\xeb\x9d\xbc.\r\n3. **Change Log**: \xeb\xb3\x80\xea\xb2\xbd \xec\x9d\xb4\xeb\xa0\xa5\xec\x9d\x80 \xeb\xac\xb8\xec\x84\x9c \xec\xb5\x9c\xec\x83\x81\xeb\x8b\xa8\xec\x9d\x98 `Change Log` \xed\x85\x8c\xec\x9d\xb4\xeb\xb8\x94\xec\x97\x90\xeb\xa7\x8c \xea\xb8\xb0\xeb\xa1\x9d\xed\x95\x98\xeb\x9d\xbc.\r\n\r\n---\r\n\r\n## 8. AI Agent Quick Reference\r\n\r\n### Reading Priority (P0 = Must Read)\r\n1. **P0**: \xec\x9d\xb4 \xed\x8c\x8c\xec\x9d\xbc (`01_CONVENTIONS.md`)\r\n2. **P0**: Target REQ\xec\x9d\x98 `**Must-Read**` \xed\x95\x84\xeb\x93\x9c\r\n3. **P1**: `02_REQUIREMENTS/business_rules/` (\xec\xa0\x84\xec\xb2\xb4)\r\n4. **P2**: `98_KNOWLEDGE/` (\xeb\xb3\xb5\xec\x9e\xa1\xed\x95\x9c \xea\xb8\xb0\xeb\x8a\xa5 \xec\x8b\x9c)\r\n\r\n### Execution Checklist\r\n1. [ ] CONVENTIONS\xec\x9d\x98 Boundaries \xed\x99\x95\xec\x9d\xb8\r\n2. [ ] Target REQ \xec\x9d\xbd\xea\xb8\xb0\r\n3. [ ] Must-Read \xeb\xac\xb8\xec\x84\x9c \xec\x9d\xbd\xea\xb8\xb0\r\n4. [ ] RUN \xeb\xac\xb8\xec\x84\x9c \xec\x9e\x91\xec\x84\xb1 (Self-Check \xed\x8f\xac\xed\x95\xa8)\r\n5. [ ] \xea\xb5\xac\xed\x98\x84 \xe2\x86\x92 \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xe2\x86\x92 \xea\xb2\x80\xec\xa6\x9d\r\n6. [ ] RUN \xeb\xac\xb8\xec\x84\x9c \xec\x99\x84\xeb\xa3\x8c \xec\xb2\x98\xeb\xa6\xac\r\n"""\r\n\r\nBOOTSTRAP_GOALS_TEMPLATE = f"""# Project Goals\r\n\r\n> **ID**: CTX-GOALS-001\r\n> **Last Updated**: [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n> **Template-Version**: {TEMPLATE_VERSION}\r\n\r\n---\r\n\r\n## 1. Project Identity\r\n\r\n### Name\r\n[TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n### One-Line Summary\r\n[TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n### Core Value\r\n[TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n---\r\n\r\n## 2. Target Users\r\n\r\n- **Primary**: [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n- **Secondary**: [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n---\r\n\r\n## 3. Success Criteria\r\n\r\n- [ ] [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n---\r\n\r\n## 4. Scope\r\n\r\n### In-Scope\r\n- [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n### Out-of-Scope\r\n- [TODO: AI\xec\x99\x80 \xed\x86\xa0\xec\x9d\x98\xed\x95\x98\xec\x97\xac \xea\xb2\xb0\xec\xa0\x95]\r\n\r\n---\r\n\r\n## 5. Milestones\r\n\r\n| Phase | Description | Target Date | Status |\r\n|-------|-------------|-------------|--------|\r\n| Phase 1 | [TODO] | [TODO] | Not Started |\r\n"""\r\n\r\nBOOTSTRAP_TEMPLATES = {\r\n    "BOOTSTRAP_PROMPT.md": BOOTSTRAP_PROMPT_TEMPLATE,\r\n}\r\n\r\n# ============================================================================\r\n# SYSTEM TEMPLATES\r\n# ============================================================================\r\nAGENT_RULES_TEMPLATE = f"""# MemoryAtlas Agent Rules (v{CURRENT_VERSION}) - Smart Spec Edition\r\n\r\n> **SYSTEM FILE**: Managed by `memory_manager.py`. DO NOT EDIT.\r\n> **For custom rules**: Use `01_PROJECT_CONTEXT/01_CONVENTIONS.md`.\r\n\r\n---\r\n\r\n## 1. Smart Spec Model\r\n\r\n```\r\n6 Core Sections in CONVENTIONS:\r\n  1. Commands: Test, Lint, Run \xeb\xaa\x85\xeb\xa0\xb9\xec\x96\xb4\r\n  2. Project Structure: \xeb\x94\x94\xeb\xa0\x89\xed\x86\xa0\xeb\xa6\xac \xea\xb5\xac\xec\xa1\xb0\r\n  3. Code Style: \xed\x8f\xac\xeb\xa7\xb7\xed\x8c\x85, \xeb\x84\xa4\xec\x9d\xb4\xeb\xb0\x8d \xea\xb7\x9c\xec\xb9\x99\r\n  4. Testing Strategy: \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\x9a\x94\xea\xb5\xac\xec\x82\xac\xed\x95\xad\r\n  5. Git Workflow: \xeb\xb8\x8c\xeb\x9e\x9c\xec\xb9\x98/\xec\xbb\xa4\xeb\xb0\x8b \xea\xb7\x9c\xec\xb9\x99\r\n  6. Boundaries: Always / Ask First / Never \xea\xb7\x9c\xec\xb9\x99\r\n\r\nBoundaries (STRICT):\r\n  \xe2\x9c\x85 Always: AI\xea\xb0\x80 \xed\x95\xad\xec\x83\x81 \xec\x88\x98\xed\x96\x89\xed\x95\xb4\xec\x95\xbc \xed\x95\x98\xeb\x8a\x94 \xed\x96\x89\xeb\x8f\x99\r\n  \xe2\x9a\xa0\xef\xb8\x8f Ask First: \xec\x82\xac\xeb\x9e\x8c \xec\x8a\xb9\xec\x9d\xb8 \xed\x9b\x84 \xec\xa7\x84\xed\x96\x89\r\n  \xf0\x9f\x9a\xab Never: AI\xea\xb0\x80 \xec\xa0\x88\xeb\x8c\x80 \xec\x88\x98\xed\x96\x89\xed\x95\x98\xeb\xa9\xb4 \xec\x95\x88 \xeb\x90\x98\xeb\x8a\x94 \xed\x96\x89\xeb\x8f\x99\r\n```\r\n\r\n---\r\n\r\n## 2. Authority Model\r\n\r\n```\r\n\xea\xb6\x8c\xec\x9c\x84\xec\x9d\x98 \xed\x9d\x90\xeb\xa6\x84 (Authority Flow):\r\n  REQ (Authority) \xe2\x86\x92 TECH_SPEC \xe2\x86\x92 CODE \xe2\x86\x92 RUN/LOG\r\n\r\n\xeb\xac\xb8\xec\x84\x9c \xeb\x93\xb1\xea\xb8\x89:\r\n  - DECISION: \xec\xb5\x9c\xec\xa2\x85 \xea\xb2\xb0\xec\xa0\x95 (REQ-*, RULE-*) - MUST READ\r\n  - DISCUSSION: \xec\xa1\xb0\xec\x9c\xa8 \xea\xb8\xb0\xeb\xa1\x9d (DISC-*) - DEFAULT SKIP\r\n  - RATIONALE: \xea\xb2\xb0\xec\xa0\x95 \xea\xb7\xbc\xea\xb1\xb0 (ADR-*) - READ IF REFERENCED\r\n  - EXECUTION: \xec\x9e\x91\xec\x97\x85 \xeb\x8b\xa8\xec\x9c\x84 (RUN-*) - CREATE/UPDATE\r\n```\r\n\r\n---\r\n\r\n## 3. Reading Priority\r\n\r\n### P0 (Always Read)\r\n1. `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **\xed\x8a\xb9\xed\x9e\x88 Boundaries \xec\x84\xb9\xec\x85\x98**\r\n2. Target REQ\'s `**Must-Read**` field\r\n3. All referenced RULE-* documents\r\n\r\n### P1 (Read for Context)\r\n- `02_REQUIREMENTS/business_rules/` (all active)\r\n- Referenced ADR-* documents\r\n\r\n### Default Skip\r\n- `02_REQUIREMENTS/discussions/` - Only when explicitly referenced\r\n- `04_TASK_LOGS/archive/` - Only for historical context\r\n- `99_ARCHIVE/` - Deprecated content\r\n\r\n---\r\n\r\n## 4. Boundaries Compliance (STRICT)\r\n\r\n### \xe2\x9c\x85 Always (\xed\x95\xad\xec\x83\x81 \xec\x88\x98\xed\x96\x89)\r\n- RUN \xeb\xac\xb8\xec\x84\x9c \xec\xa2\x85\xeb\xa3\x8c \xec\xa0\x84 **\xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xed\x86\xb5\xea\xb3\xbc** \xed\x99\x95\xec\x9d\xb8\r\n- \xeb\xaa\xa8\xeb\x93\xa0 \xed\x8d\xbc\xeb\xb8\x94\xeb\xa6\xad \xed\x95\xa8\xec\x88\x98\xec\x97\x90 **Type Hint** \xec\xb6\x94\xea\xb0\x80\r\n- \xea\xb8\xb0\xec\xa1\xb4 \xec\xbd\x94\xeb\x93\x9c \xec\x88\x98\xec\xa0\x95 \xec\x8b\x9c **\xea\xb8\xb0\xec\xa1\xb4 \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xed\x86\xb5\xea\xb3\xbc** \xed\x99\x95\xec\x9d\xb8\r\n- \xec\x83\x88 \xea\xb8\xb0\xeb\x8a\xa5 \xec\xb6\x94\xea\xb0\x80 \xec\x8b\x9c **REQ \xeb\xac\xb8\xec\x84\x9c \xec\xb0\xb8\xec\xa1\xb0** \xed\x99\x95\xec\x9d\xb8\r\n\r\n### \xe2\x9a\xa0\xef\xb8\x8f Ask First (\xec\x82\xac\xec\xa0\x84 \xec\x8a\xb9\xec\x9d\xb8 \xed\x95\x84\xec\x9a\x94)\r\n- `requirements.txt` \xeb\x93\xb1 **\xec\x9d\x98\xec\xa1\xb4\xec\x84\xb1 \xec\xb6\x94\xea\xb0\x80/\xec\x82\xad\xec\xa0\x9c**\r\n- `.memory/00_SYSTEM/` \xeb\x82\xb4\xeb\xb6\x80 \xed\x8c\x8c\xec\x9d\xbc \xec\x88\x98\xec\xa0\x95\r\n- **DB \xec\x8a\xa4\xed\x82\xa4\xeb\xa7\x88 \xeb\xb3\x80\xea\xb2\xbd** (migration \xeb\x93\xb1)\r\n- **API \xec\x97\x94\xeb\x93\x9c\xed\x8f\xac\xec\x9d\xb8\xed\x8a\xb8 \xec\x82\xad\xec\xa0\x9c/\xeb\xb3\x80\xea\xb2\xbd**\r\n- \xec\x84\xa4\xec\xa0\x95 \xed\x8c\x8c\xec\x9d\xbc \xea\xb5\xac\xec\xa1\xb0 \xeb\xb3\x80\xea\xb2\xbd\r\n\r\n### \xf0\x9f\x9a\xab Never (\xec\xa0\x88\xeb\x8c\x80 \xea\xb8\x88\xec\xa7\x80)\r\n- **Secret \xec\xbb\xa4\xeb\xb0\x8b \xea\xb8\x88\xec\xa7\x80**: API Key, Password, Token \xeb\x93\xb1\r\n- **\xed\x95\x98\xeb\x93\x9c\xec\xbd\x94\xeb\x94\xa9 \xea\xb8\x88\xec\xa7\x80**: \xed\x94\x84\xeb\xa1\x9c\xeb\x8d\x95\xec\x85\x98 \xeb\x8d\xb0\xec\x9d\xb4\xed\x84\xb0, mock \xeb\x8d\xb0\xec\x9d\xb4\xed\x84\xb0\r\n- **\xeb\xac\xbc\xeb\xa6\xac\xec\xa0\x81 \xec\x82\xad\xec\xa0\x9c \xea\xb8\x88\xec\xa7\x80**: Soft Delete \xec\x82\xac\xec\x9a\xa9\r\n- **Force Push \xea\xb8\x88\xec\xa7\x80**: main/master \xeb\xb8\x8c\xeb\x9e\x9c\xec\xb9\x98\r\n- **\xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xec\x8a\xa4\xed\x82\xb5 \xea\xb8\x88\xec\xa7\x80**: @skip\xec\x9c\xbc\xeb\xa1\x9c \xeb\xac\xb4\xec\x8b\x9c\xed\x95\x98\xec\xa7\x80 \xec\x95\x8a\xec\x9d\x8c\r\n\r\n---\r\n\r\n## 5. Writing Rules\r\n\r\n### REQ/RULE Documents (Authority)\r\n- **\xea\xb2\xb0\xec\xa0\x95\xeb\xa7\x8c \xec\xa0\x81\xeb\x8a\x94\xeb\x8b\xa4**: \xeb\x85\xbc\xec\x9d\x98/\xeb\x8c\x80\xec\x95\x88\xec\x9d\x80 discussions/\xec\x97\x90\r\n- **\xec\xa7\xa7\xea\xb2\x8c \xec\x9c\xa0\xec\xa7\x80**: \xed\x95\x9c REQ = \xed\x95\x98\xeb\x82\x98\xec\x9d\x98 \xeb\xaa\x85\xed\x99\x95\xed\x95\x9c \xea\xb2\xb0\xec\xa0\x95\r\n- **Must-Read \xed\x95\x84\xec\x88\x98**: RULE/ADR ID\xeb\xa7\x8c, \xeb\xa7\x81\xed\x81\xac \xed\x85\x8d\xec\x8a\xa4\xed\x8a\xb8\xeb\x8a\x94 ID\r\n- **Constraints \xec\x84\xa0\xed\x83\x9d\xec\xa0\x81**: \xea\xb8\xb0\xeb\x8a\xa5\xeb\xb3\x84 \xec\xb6\x94\xea\xb0\x80 \xec\xa0\x9c\xec\x95\xbd \xec\x8b\x9c\xeb\xa7\x8c \xec\x9e\x91\xec\x84\xb1\r\n\r\n### RUN Documents (Execution)\r\n- **1 RUN = 1 \xeb\xaa\xa9\xec\xa0\x81**: \xec\x97\xac\xeb\x9f\xac \xeb\xaa\xa9\xec\xa0\x81\xec\x9d\x84 \xec\x84\x9e\xec\xa7\x80 \xec\x95\x8a\xec\x9d\x8c\r\n- **Input \xeb\xaa\x85\xec\x8b\x9c**: \xec\x9d\xbd\xec\x96\xb4\xec\x95\xbc \xed\x95\xa0 \xeb\xac\xb8\xec\x84\x9c ID \xeb\xaa\xa9\xeb\xa1\x9d\r\n- **Verification \xeb\xaa\x85\xec\x8b\x9c**: \xec\x84\xb1\xea\xb3\xb5 \xec\xa1\xb0\xea\xb1\xb4 + Self-Check\r\n- **Output \xea\xb8\xb0\xeb\xa1\x9d**: \xec\x83\x9d\xec\x84\xb1/\xec\x88\x98\xec\xa0\x95 \xed\x8c\x8c\xec\x9d\xbc \xeb\xaa\xa9\xeb\xa1\x9d\r\n\r\n---\r\n\r\n## 6. Validation Requirements\r\n\r\n### Three-Way ID Consistency\r\n- `**ID**:` metadata (Authority)\r\n- Filename\r\n- Header `[ID]`\r\n\r\nAll three must match.\r\n\r\n### Must-Read Validation\r\n- Must-Read allows only RULE/ADR IDs (CTX is P0 and excluded)\r\n- Link text must be the ID if markdown links are used\r\n- All documents in `**Must-Read**` must exist\r\n\r\n---\r\n\r\n## 7. Workflow\r\n\r\n### Starting a Task\r\n1. Read P0 documents (**CONVENTIONS\xec\x9d\x98 Boundaries \xed\x99\x95\xec\x9d\xb8**)\r\n2. Read target REQ and its Must-Read\r\n3. Check REQ\'s Constraints & Boundaries (\xec\x9e\x88\xeb\x8a\x94 \xea\xb2\xbd\xec\x9a\xb0)\r\n4. Create RUN-* document in `04_TASK_LOGS/active/`\r\n5. Implement in small steps\r\n\r\n### Before Completing a Step (Self-Check)\r\n- [ ] **Test**: \xed\x85\x8c\xec\x8a\xa4\xed\x8a\xb8 \xed\x86\xb5\xea\xb3\xbc?\r\n- [ ] **Boundary**: CONVENTIONS Boundaries \xec\xa4\x80\xec\x88\x98?\r\n- [ ] **Spec**: REQ\xec\x99\x80 \xec\x9d\xbc\xec\xb9\x98?\r\n\r\n### Completing a Step\r\n1. Self-Check \xec\x99\x84\xeb\xa3\x8c \xed\x99\x95\xec\x9d\xb8\r\n2. Mark RUN as Done\r\n3. Move to `04_TASK_LOGS/archive/YYYY-MM/`\r\n4. Create next step if needed\r\n\r\n### When Discussion Needed\r\n1. Create DISC-* in `02_REQUIREMENTS/discussions/`\r\n2. Reference from REQ\'s `Related` section\r\n3. Update REQ with final decision\r\n"""\r\n\r\nSYSTEM_TEMPLATES = {\r\n    "00_SYSTEM/AGENT_RULES.md": AGENT_RULES_TEMPLATE,\r\n}\r\n\r\n# ============================================================================\r\n# MIGRATION\r\n# ============================================================================\r\nMIGRATION_MAP = {\r\n    "01_PROJECT_CONTEXT/00_IDENTITY.md": None,\r\n    "01_PROJECT_CONTEXT/01_OVERVIEW.md": None,\r\n    "01_PROJECT_CONTEXT/02_ARCHITECTURE.md": "03_TECH_SPECS/architecture/SYSTEM_ARCHITECTURE.md",\r\n    "01_PROJECT_CONTEXT/03_DATA_MODEL.md": "03_TECH_SPECS/architecture/DATA_MODEL.md",\r\n    "01_PROJECT_CONTEXT/04_AGENT_GUIDE.md": None,\r\n    "02_SERVICES": "02_REQUIREMENTS/features",\r\n    "03_MANAGEMENT/STATUS.md": "04_TASK_LOGS/STATUS.md",\r\n    "03_MANAGEMENT/CHANGELOG.md": "04_TASK_LOGS/CHANGELOG.md",\r\n    "03_MANAGEMENT/WORKLOG.md": None,\r\n    "03_MANAGEMENT/COMPONENTS.md": None,\r\n    "03_MANAGEMENT/MISSING_COMPONENTS.md": None,\r\n    "03_MANAGEMENT/tasks/active": "04_TASK_LOGS/active",\r\n    "03_MANAGEMENT/tasks/archive": "04_TASK_LOGS/archive",\r\n    "90_TOOLING/AGENT_RULES.md": "00_SYSTEM/AGENT_RULES.md",\r\n    "90_TOOLING/scripts": "00_SYSTEM/scripts",\r\n}\r\n\r\nLEGACY_DIRS_TO_ARCHIVE = [\r\n    "02_SERVICES",\r\n    "03_MANAGEMENT",\r\n    "90_TOOLING",\r\n]\r\n')
+    __stickytape_write_module('core/checks.py', b'\r\nimport os\r\nimport re\r\nfrom typing import Optional\r\n\r\nfrom core.config import *\r\nfrom utils.fs import read_text, read_version\r\n\r\ndef iter_md_files(root: str, dirs: list[str]) -> list[str]:\r\n    """Iterate over markdown files in specified directories."""\r\n    files = []\r\n    for base in dirs:\r\n        base_path = os.path.join(root, base)\r\n        if not os.path.isdir(base_path):\r\n            continue\r\n        for dirpath, _, filenames in os.walk(base_path):\r\n            for name in filenames:\r\n                if name.lower().endswith(".md"):\r\n                    files.append(os.path.join(dirpath, name))\r\n    return files\r\n\r\ndef get_doc_type(path: str) -> str:\r\n    """Determine document type from path."""\r\n    if "features" in path:\r\n        return "features"\r\n    if "business_rules" in path:\r\n        return "business_rules"\r\n    if "decisions" in path:\r\n        return "decisions"\r\n    if "discussions" in path:\r\n        return "discussions"\r\n    if "active" in path and "RUN-" in os.path.basename(path):\r\n        return "runs"\r\n    return "default"\r\n\r\ndef check_structure(root: str) -> int:\r\n    """Validate directory structure and required files."""\r\n    issues = 0\r\n    if not os.path.isdir(root):\r\n        print(f"! Missing root directory: {root}")\r\n        return 1\r\n\r\n    for folder in DIRS:\r\n        path = os.path.join(root, folder)\r\n        if not os.path.isdir(path):\r\n            print(f"! Missing directory: {folder}")\r\n            issues += 1\r\n\r\n    required_files = set(DOC_TEMPLATES.keys())\r\n    required_files.add("VERSION")\r\n    required_files.update(SYSTEM_TEMPLATES.keys())\r\n\r\n    for rel_path in sorted(required_files):\r\n        path = os.path.join(root, rel_path)\r\n        if not os.path.exists(path):\r\n            print(f"! Missing file: {rel_path}")\r\n            issues += 1\r\n\r\n    installed_version = read_version(root)\r\n    if installed_version != CURRENT_VERSION:\r\n        print(\r\n            f"! Version mismatch: installed {installed_version} "\r\n            f"vs current {CURRENT_VERSION}"\r\n        )\r\n        issues += 1\r\n\r\n    print(f"\\nStructure check: {issues} issue(s)")\r\n    return issues\r\n\r\ndef lint_metadata(root: str) -> int:\r\n    """Check metadata headers in documents."""\r\n    issues = 0\r\n    for path in iter_md_files(root, LINT_DIRS):\r\n        name = os.path.basename(path)\r\n        if name in LINT_SKIP_FILES:\r\n            continue\r\n\r\n        text = read_text(path)\r\n        head = "\\n".join(text.splitlines()[:40])\r\n\r\n        doc_type = get_doc_type(path)\r\n        required_fields = HEADER_FIELDS_BY_TYPE.get(\r\n            doc_type, HEADER_FIELDS_BY_TYPE["default"]\r\n        )\r\n\r\n        missing = [field for field in required_fields if field not in head]\r\n        if missing:\r\n            rel_path = os.path.relpath(path, root)\r\n            print(f"! Missing header fields in {rel_path}: {\', \'.join(missing)}")\r\n            issues += 1\r\n\r\n    print(f"Metadata lint: {issues} issue(s)")\r\n    return issues\r\n\r\ndef iter_links(text: str) -> list[str]:\r\n    """Extract markdown links from text, excluding code blocks."""\r\n    links = []\r\n    in_code = False\r\n    for line in text.splitlines():\r\n        stripped = line.strip()\r\n        if stripped.startswith("```"):\r\n            in_code = not in_code\r\n            continue\r\n        if in_code:\r\n            continue\r\n        for match in LINK_RE.finditer(line):\r\n            links.append(match.group(1).strip())\r\n    return links\r\n\r\ndef check_links(root: str, allow_absolute: bool = False) -> int:\r\n    """Validate links in markdown documents."""\r\n    issues = 0\r\n    for path in iter_md_files(root, LINK_SCAN_DIRS):\r\n        text = read_text(path)\r\n        for target in iter_links(text):\r\n            if not target:\r\n                continue\r\n            if target.startswith("#"):\r\n                continue\r\n            if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", target):\r\n                continue\r\n\r\n            clean = target.split("#", 1)[0].split("?", 1)[0].strip()\r\n            if not clean:\r\n                continue\r\n            if clean.startswith("<") and clean.endswith(">"):\r\n                clean = clean[1:-1].strip()\r\n\r\n            is_absolute = os.path.isabs(clean) or re.match(r"^[A-Za-z]:", clean)\r\n            if is_absolute:\r\n                rel_path = os.path.relpath(path, root)\r\n                if not allow_absolute:\r\n                    print(f"! Absolute path link forbidden in {rel_path}: {target}")\r\n                    issues += 1\r\n                elif not os.path.exists(clean):\r\n                    print(f"! Broken absolute link in {rel_path}: {target}")\r\n                    issues += 1\r\n                continue\r\n\r\n            resolved = os.path.normpath(os.path.join(os.path.dirname(path), clean))\r\n            if not os.path.exists(resolved):\r\n                rel_path = os.path.relpath(path, root)\r\n                print(f"! Broken link in {rel_path}: {target}")\r\n                issues += 1\r\n\r\n    print(f"Link check: {issues} issue(s)")\r\n    return issues\r\n\r\ndef extract_id_from_filename(filename: str) -> Optional[str]:\r\n    """Extract document ID from filename."""\r\n    name = os.path.splitext(filename)[0]\r\n    if REQ_ID_PATTERN.match(name):\r\n        return name\r\n    if RULE_ID_PATTERN.match(name):\r\n        return name\r\n    if DISC_ID_PATTERN.match(name):\r\n        return name\r\n    if RUN_ID_PATTERN.match(name):\r\n        return name\r\n    return None\r\n\r\ndef extract_meta_id(text: str) -> Optional[str]:\r\n    """Extract document ID from **ID**: metadata line (authority source)."""\r\n    match = META_ID_RE.search(text)\r\n    if match:\r\n        return match.group(1)\r\n    return None\r\n\r\ndef parse_must_read(text: str) -> tuple[list[str], list[str], list[str]]:\r\n    """Parse Must-Read and return (ids, invalid_links, disallowed_ids)."""\r\n    match = MUST_READ_RE.search(text)\r\n    if not match:\r\n        return [], [], []\r\n\r\n    refs = match.group(1).strip()\r\n    ids: list[str] = []\r\n    invalid_links: list[str] = []\r\n    disallowed_ids: list[str] = []\r\n    seen_ids: set[str] = set()\r\n    seen_invalid: set[str] = set()\r\n    seen_disallowed: set[str] = set()\r\n\r\n    for link_match in MUST_READ_LINK_RE.finditer(refs):\r\n        link_text = link_match.group(1).strip()\r\n        if not link_text:\r\n            if "<empty>" not in seen_invalid:\r\n                invalid_links.append("<empty>")\r\n                seen_invalid.add("<empty>")\r\n            continue\r\n        if MUST_READ_ANY_ID_RE.fullmatch(link_text):\r\n            if MUST_READ_ALLOWED_ID_RE.fullmatch(link_text):\r\n                if link_text not in seen_ids:\r\n                    ids.append(link_text)\r\n                    seen_ids.add(link_text)\r\n            else:\r\n                if link_text not in seen_disallowed:\r\n                    disallowed_ids.append(link_text)\r\n                    seen_disallowed.add(link_text)\r\n        else:\r\n            if link_text not in seen_invalid:\r\n                invalid_links.append(link_text)\r\n                seen_invalid.add(link_text)\r\n\r\n    refs_without_links = MUST_READ_LINK_RE.sub(" ", refs)\r\n    for id_match in MUST_READ_ANY_ID_RE.finditer(refs_without_links):\r\n        candidate = id_match.group(0)\r\n        if MUST_READ_ALLOWED_ID_RE.fullmatch(candidate):\r\n            if candidate not in seen_ids:\r\n                ids.append(candidate)\r\n                seen_ids.add(candidate)\r\n        else:\r\n            if candidate not in seen_disallowed:\r\n                disallowed_ids.append(candidate)\r\n                seen_disallowed.add(candidate)\r\n\r\n    return ids, invalid_links, disallowed_ids\r\n\r\ndef extract_must_read(text: str) -> list[str]:\r\n    """Extract allowed Must-Read IDs from document."""\r\n    ids, _, _ = parse_must_read(text)\r\n    return ids\r\n\r\ndef extract_header_ids(\r\n    text: str, patterns: Optional[list[re.Pattern]] = None\r\n) -> list[str]:\r\n    """Extract IDs from header lines (for sync validation)."""\r\n    header_ids: list[str] = []\r\n    scan_patterns = patterns or [REQ_HEADER_RE, RULE_HEADER_RE]\r\n    for pattern in scan_patterns:\r\n        for match in pattern.finditer(text):\r\n            header_ids.append(match.group(1))\r\n    return header_ids\r\n\r\ndef check_requirements(root: str) -> int:\r\n    """Validate requirement documents with authority model."""\r\n    issues = 0\r\n    seen_ids: dict[str, str] = {}\r\n    all_ids: set[str] = set()\r\n\r\n    # First pass: collect all IDs\r\n    for path in iter_md_files(root, REQ_SCAN_DIRS):\r\n        text = read_text(path)\r\n        meta_id = extract_meta_id(text)\r\n        if meta_id:\r\n            all_ids.add(meta_id)\r\n\r\n    # Fix F: Collect DISC IDs so they can be referenced\r\n    for path in iter_md_files(root, ["02_REQUIREMENTS/discussions"]):\r\n        text = read_text(path)\r\n        meta_id = extract_meta_id(text)\r\n        if meta_id:\r\n            all_ids.add(meta_id)\r\n\r\n    # Also collect RULE IDs\r\n    for path in iter_md_files(root, ["02_REQUIREMENTS/business_rules"]):\r\n        text = read_text(path)\r\n        meta_id = extract_meta_id(text)\r\n        if meta_id:\r\n            all_ids.add(meta_id)\r\n\r\n    # Also collect ADR IDs (v2.2.1: P0 fix - validate ADR references)\r\n    for path in iter_md_files(root, ["03_TECH_SPECS/decisions"]):\r\n        text = read_text(path)\r\n        meta_id = extract_meta_id(text)\r\n        if meta_id:\r\n            all_ids.add(meta_id)\r\n        else:\r\n            # Fallback: extract ADR ID from filename (ADR-NNN-*.md)\r\n            filename = os.path.basename(path)\r\n            adr_match = re.match(r"(ADR-\\d{3})", filename)\r\n            if adr_match:\r\n                all_ids.add(adr_match.group(1))\r\n\r\n    # Second pass: validate\r\n    for path in iter_md_files(root, REQ_SCAN_DIRS):\r\n        text = read_text(path)\r\n        rel_path = os.path.relpath(path, root)\r\n        filename = os.path.basename(path)\r\n\r\n        if filename == "README.md":\r\n            continue\r\n\r\n        # === AUTHORITY: Extract ID from **ID**: metadata ===\r\n        meta_id = extract_meta_id(text)\r\n        filename_id = extract_id_from_filename(filename)\r\n        if (filename_id and filename_id.startswith("REQ-")) or (\r\n            meta_id and meta_id.startswith("REQ-")\r\n        ):\r\n            expected_patterns = [REQ_HEADER_RE]\r\n        elif (filename_id and filename_id.startswith("RULE-")) or (\r\n            meta_id and meta_id.startswith("RULE-")\r\n        ):\r\n            expected_patterns = [RULE_HEADER_RE]\r\n        else:\r\n            expected_patterns = [REQ_HEADER_RE, RULE_HEADER_RE]\r\n\r\n        header_ids = extract_header_ids(text, patterns=expected_patterns)\r\n        header_ids_any = extract_header_ids(\r\n            text, patterns=[REQ_HEADER_RE, RULE_HEADER_RE, DISC_HEADER_RE, RUN_HEADER_RE]\r\n        )\r\n\r\n        # --- Validation 1: **ID**: must exist ---\r\n        if meta_id is None:\r\n            print(f"! Missing **ID**: metadata in {rel_path}")\r\n            print(f"    -> Add: > **ID**: REQ-DOMAIN-NNN or RULE-DOMAIN-NNN")\r\n            issues += 1\r\n            if filename_id:\r\n                meta_id = filename_id\r\n\r\n        # --- Validation 2: Filename format check ---\r\n        if filename_id is None:\r\n            print(f"! Invalid filename format in {rel_path}")\r\n            print(f"    -> Expected: REQ-[DOMAIN]-[NNN].md or RULE-[DOMAIN]-[NNN].md")\r\n            issues += 1\r\n\r\n        # --- Validation 3: Filename must match **ID**: ---\r\n        if meta_id and filename_id and meta_id != filename_id:\r\n            print(f"! Filename does not match **ID**: in {rel_path}")\r\n            print(f"    -> **ID**: {meta_id}")\r\n            print(f"    -> Filename: {filename_id}")\r\n            issues += 1\r\n\r\n        # --- Validation 4: Header must match **ID**: ---\r\n        if meta_id and header_ids:\r\n            if meta_id not in header_ids:\r\n                print(f"! Header does not match **ID**: in {rel_path}")\r\n                print(f"    -> **ID**: {meta_id}")\r\n                print(f"    -> Header(s): {\', \'.join(header_ids)}")\r\n                issues += 1\r\n        elif meta_id and not header_ids:\r\n            if header_ids_any:\r\n                print(f"! Header type mismatch in {rel_path}")\r\n                print(f"    -> **ID**: {meta_id}")\r\n                print(f"    -> Header(s): {\', \'.join(header_ids_any)}")\r\n                issues += 1\r\n            else:\r\n                print(f"! Missing header with ID in {rel_path}")\r\n                print(f"    -> Fix: Add header # [{meta_id}] Feature/Rule Name")\r\n                issues += 1\r\n\r\n        # --- Validation 5: Must-Read field exists (v2.2) ---\r\n        must_read_match = MUST_READ_RE.search(text)\r\n        must_read_ids, invalid_links, disallowed_ids = parse_must_read(text)\r\n        if must_read_match is None:\r\n            print(f"! Missing **Must-Read**: field in {rel_path}")\r\n            print(f"    -> Add: > **Must-Read**: RULE-XXX-001, ADR-XXX")\r\n            issues += 1\r\n        else:\r\n            if invalid_links:\r\n                print(f"! Must-Read link text must be an ID in {rel_path}")\r\n                print(f"    -> Invalid link text: {\', \'.join(invalid_links)}")\r\n                issues += 1\r\n            if disallowed_ids:\r\n                print(f"! Must-Read allows only RULE/ADR IDs in {rel_path}")\r\n                print(f"    -> Disallowed ID(s): {\', \'.join(disallowed_ids)}")\r\n                issues += 1\r\n            # Fix B: Fail if Must-Read is empty (but present)\r\n            if not must_read_ids:\r\n                print(f"! Empty **Must-Read**: list in {rel_path}")\r\n                print(\r\n                    f"    -> MUST specify at least one ID (or \'None\' if genuinely none, though rare)"\r\n                )\r\n                issues += 1\r\n\r\n        # --- Validation 6: Must-Read references exist (v2.2.1: includes ADR) ---\r\n        for ref_id in must_read_ids:\r\n            if ref_id and ref_id not in all_ids:\r\n                print(f"! Must-Read reference not found in {rel_path}: {ref_id}")\r\n                issues += 1\r\n\r\n        # --- Validation 7: Duplicate ID check ---\r\n        if meta_id:\r\n            if meta_id in seen_ids:\r\n                print(\r\n                    f"! Duplicate ID {meta_id} in {rel_path} "\r\n                    f"(also in {seen_ids[meta_id]})"\r\n                )\r\n                issues += 1\r\n            else:\r\n                seen_ids[meta_id] = rel_path\r\n\r\n    print(f"Requirement check: {issues} issue(s)")\r\n    return issues\r\n\r\ndef check_runs(root: str) -> int:\r\n    """Validate RUN documents (Execution Unit model) with 3-way ID consistency."""\r\n    issues = 0\r\n\r\n    for path in iter_md_files(root, RUN_SCAN_DIRS):\r\n        text = read_text(path)\r\n        rel_path = os.path.relpath(path, root)\r\n        filename = os.path.basename(path)\r\n\r\n        if filename == "README.md":\r\n            continue\r\n\r\n        # === v2.2.1: 3-way ID consistency for RUN documents ===\r\n        meta_id = extract_meta_id(text)\r\n        filename_id = os.path.splitext(filename)[0]  # RUN ID is full filename\r\n        header_match = RUN_HEADER_RE.search(text)\r\n        header_id = header_match.group(1) if header_match else None\r\n\r\n        # Check filename format\r\n        if not RUN_ID_PATTERN.match(filename_id):\r\n            print(f"! Invalid RUN filename format: {rel_path}")\r\n            print(f"    -> Expected: RUN-REQ-[DOMAIN]-[NNN]-step-[NN].md")\r\n            issues += 1\r\n\r\n        # --- Validation: **ID**: must exist ---\r\n        if meta_id is None:\r\n            print(f"! Missing **ID**: metadata in {rel_path}")\r\n            print(f"    -> Add: > **ID**: {filename_id}")\r\n            issues += 1\r\n            meta_id = filename_id  # Fallback for subsequent checks\r\n\r\n        # --- Validation: Filename must match **ID**: ---\r\n        if meta_id and meta_id != filename_id:\r\n            print(f"! Filename does not match **ID**: in {rel_path}")\r\n            print(f"    -> **ID**: {meta_id}")\r\n            print(f"    -> Filename: {filename_id}")\r\n            issues += 1\r\n\r\n        # --- Validation: Header must match **ID**: ---\r\n        if meta_id and header_id and meta_id != header_id:\r\n            print(f"! Header does not match **ID**: in {rel_path}")\r\n            print(f"    -> **ID**: {meta_id}")\r\n            print(f"    -> Header: {header_id}")\r\n            issues += 1\r\n        elif meta_id and not header_id:\r\n            print(f"! Missing header with ID in {rel_path}")\r\n            print(f"    -> Fix: Add header # [{meta_id}] Step Description")\r\n            issues += 1\r\n\r\n        # Check required fields\r\n        # Check required fields\r\n        # Fix E: Use regex search instead of string containment\r\n        if not RUN_INPUT_RE.search(text):\r\n            print(f"! Missing **Input**: field in {rel_path}")\r\n            issues += 1\r\n\r\n        if not RUN_VERIFICATION_RE.search(text):\r\n            print(f"! Missing **Verification**: field in {rel_path}")\r\n            issues += 1\r\n\r\n        # Check Output section exists\r\n        # Fix D: RUN_OUTPUT_RE updated to support ### Output\r\n        if not RUN_OUTPUT_RE.search(text):\r\n            print(f"! Missing ## Output section in {rel_path}")\r\n            issues += 1\r\n\r\n    print(f"RUN document check: {issues} issue(s)")\r\n    return issues\r\n\r\ndef check_discussions(root: str) -> int:\r\n    """Validate DISCUSSION documents (3-way ID consistency)."""\r\n    issues = 0\r\n    # Fix F: Add DISC validation\r\n    for path in iter_md_files(root, ["02_REQUIREMENTS/discussions"]):\r\n        text = read_text(path)\r\n        rel_path = os.path.relpath(path, root)\r\n        filename = os.path.basename(path)\r\n\r\n        if filename == "README.md":\r\n            continue\r\n\r\n        meta_id = extract_meta_id(text)\r\n        filename_id = extract_id_from_filename(filename)\r\n        header_ids = extract_header_ids(text, patterns=[DISC_HEADER_RE])\r\n\r\n        # 1. **ID**: metadata existence\r\n        if meta_id is None:\r\n            print(f"! Missing **ID**: metadata in {rel_path}")\r\n            issues += 1\r\n            if filename_id:\r\n                meta_id = filename_id\r\n\r\n        # 2. Filename format\r\n        if filename_id is None:\r\n            print(f"! Invalid DISC filename format in {rel_path}")\r\n            issues += 1\r\n\r\n        # 3. Filename vs Meta ID\r\n        if meta_id and filename_id and meta_id != filename_id:\r\n            print(f"! Filename does not match **ID**: in {rel_path}")\r\n            print(f"    -> **ID**: {meta_id}")\r\n            print(f"    -> Filename: {filename_id}")\r\n            issues += 1\r\n\r\n        # 4. Header vs Meta ID\r\n        if meta_id and header_ids:\r\n            if meta_id not in header_ids:\r\n                print(f"! Header does not match **ID**: in {rel_path}")\r\n                print(f"    -> **ID**: {meta_id}")\r\n                print(f"    -> Header(s): {\', \'.join(header_ids)}")\r\n                issues += 1\r\n        elif meta_id and not header_ids:\r\n            print(f"! Missing header with ID in {rel_path}")\r\n            print(f"    -> Fix: Add header # [{meta_id}] Discussion Title")\r\n            issues += 1\r\n\r\n    print(f"Discussion check: {issues} issue(s)")\r\n    return issues\r\n\r\ndef doctor(root: str, allow_absolute_links: bool = False) -> int:\r\n    """Run all checks at once."""\r\n    print("\\n" + "=" * 60)\r\n    print("  MemoryAtlas Doctor - Full System Check")\r\n    print("=" * 60)\r\n\r\n    total_issues = 0\r\n\r\n    print("\\n[1/6] Structure Check")\r\n    print("-" * 40)\r\n    total_issues += check_structure(root)\r\n\r\n    print("\\n[2/6] Metadata Lint")\r\n    print("-" * 40)\r\n    total_issues += lint_metadata(root)\r\n\r\n    print("\\n[3/6] Link Validation")\r\n    print("-" * 40)\r\n    total_issues += check_links(root, allow_absolute=allow_absolute_links)\r\n\r\n    print("\\n[4/6] Requirement Validation (Authority)")\r\n    print("-" * 40)\r\n    total_issues += check_requirements(root)\r\n\r\n    print("\\n[5/6] RUN Document Validation (Execution)")\r\n    print("-" * 40)\r\n    total_issues += check_runs(root)\r\n\r\n    print("\\n[6/6] Discussion Validation (Reference)")\r\n    print("-" * 40)\r\n    total_issues += check_discussions(root)\r\n\r\n    print("\\n" + "=" * 60)\r\n    if total_issues == 0:\r\n        print("  [OK] All checks passed!")\r\n    else:\r\n        print(f"  [!] Total issues found: {total_issues}")\r\n    print("=" * 60)\r\n\r\n    return total_issues\r\n\r\n\r\n# ============================================================================\r\n# MAIN\r\n# ============================================================================\r\n')
+    __stickytape_write_module('utils/__init__.py', b'')
+    __stickytape_write_module('utils/fs.py', b'\r\nimport os\r\nimport shutil\r\n\r\nfrom core.config import CURRENT_VERSION, DIRS, DOC_TEMPLATES, SYSTEM_TEMPLATES\r\n\r\ndef write_file(path: str, content: str, dry_run: bool = False) -> None:\r\n    """Write content to file, creating parent directories if needed."""\r\n    if dry_run:\r\n        return\r\n    dir_name = os.path.dirname(path)\r\n    if dir_name:\r\n        os.makedirs(dir_name, exist_ok=True)\r\n    with open(path, "w", encoding="utf-8") as f:\r\n        f.write(content)\r\n\r\ndef read_text(path: str) -> str:\r\n    """Read text from file with error handling."""\r\n    with open(path, "r", encoding="utf-8", errors="ignore") as f:\r\n        return f.read()\r\n\r\ndef safe_move(src: str, dest: str, dry_run: bool = False) -> bool:\r\n    """Safely move file/directory."""\r\n    if not os.path.exists(src):\r\n        return False\r\n    if dry_run:\r\n        return True\r\n    dest_dir = os.path.dirname(dest)\r\n    if dest_dir:\r\n        os.makedirs(dest_dir, exist_ok=True)\r\n    if os.path.exists(dest):\r\n        return False\r\n    try:\r\n        shutil.move(src, dest)\r\n        return True\r\n    except Exception as e:\r\n        print(f"  ! Failed to move {src}: {e}")\r\n        return False\r\n\r\ndef ensure_structure(root: str) -> None:\r\n    """Ensure all required directories exist."""\r\n    for folder in DIRS:\r\n        os.makedirs(os.path.join(root, folder), exist_ok=True)\r\n\r\ndef create_missing_docs(root: str, dry_run: bool = False) -> None:\r\n    """Create missing template documents."""\r\n    for rel_path, content in DOC_TEMPLATES.items():\r\n        path = os.path.join(root, rel_path)\r\n        if os.path.exists(path):\r\n            continue\r\n        if dry_run:\r\n            print(f"  - Would create doc: {rel_path}")\r\n            continue\r\n        dir_name = os.path.dirname(path)\r\n        if dir_name:\r\n            os.makedirs(dir_name, exist_ok=True)\r\n        write_file(path, content)\r\n        print(f"  + Created doc: {rel_path}")\r\n\r\ndef update_system_templates(root: str, dry_run: bool = False) -> None:\r\n    """Update system-managed template files."""\r\n    for rel_path, content in SYSTEM_TEMPLATES.items():\r\n        path = os.path.join(root, rel_path)\r\n        if dry_run:\r\n            print(f"  - Would update system file: {rel_path}")\r\n            continue\r\n        dir_name = os.path.dirname(path)\r\n        if dir_name:\r\n            os.makedirs(dir_name, exist_ok=True)\r\n        write_file(path, content)\r\n        print(f"  * Updated system file: {rel_path}")\r\n\r\ndef update_tooling(root: str, dry_run: bool = False) -> None:\r\n    """Copy current script to system scripts directory."""\r\n    src = os.path.abspath(__file__)\r\n    dest = os.path.join(root, "00_SYSTEM", "scripts", "memory_manager.py")\r\n    dest_dir = os.path.dirname(dest)\r\n    if dest_dir:\r\n        os.makedirs(dest_dir, exist_ok=True)\r\n    if os.path.abspath(src) != os.path.abspath(dest):\r\n        if dry_run:\r\n            print(f"  - Would update tool: {dest}")\r\n            return\r\n        shutil.copyfile(src, dest)\r\n        print(f"  * Updated tool: 00_SYSTEM/scripts/memory_manager.py")\r\n\r\ndef read_version(root: str) -> str:\r\n    """Read installed version from VERSION file."""\r\n    version_file = os.path.join(root, "VERSION")\r\n    if not os.path.exists(version_file):\r\n        return "0.0.0"\r\n    with open(version_file, "r", encoding="utf-8") as f:\r\n        return f.read().strip()\r\n\r\ndef write_version(root: str, dry_run: bool = False) -> None:\r\n    """Write current version to VERSION file."""\r\n    version_file = os.path.join(root, "VERSION")\r\n    if dry_run:\r\n        print(f"  - Would update version to: {CURRENT_VERSION}")\r\n        return\r\n    write_file(version_file, CURRENT_VERSION)\r\n')
+    __stickytape_write_module('core/status.py', b'\r\nimport os\r\nfrom datetime import datetime\r\n\r\ndef status_report(root: str, show_recent: int = 5) -> int:\r\n    """Report on active tasks and knowledge base."""\r\n    print("\\n=== Status Report ===")\r\n\r\n    # Count active tasks\r\n    active_dir = os.path.join(root, "04_TASK_LOGS", "active")\r\n    active_tasks: list[tuple[str, float]] = []\r\n    if os.path.isdir(active_dir):\r\n        for f in os.listdir(active_dir):\r\n            if f.endswith(".md") and f != "README.md":\r\n                fpath = os.path.join(active_dir, f)\r\n                mtime = os.path.getmtime(fpath)\r\n                active_tasks.append((f, mtime))\r\n\r\n    active_tasks.sort(key=lambda x: x[1], reverse=True)\r\n\r\n    # Count archived tasks\r\n    archive_dir = os.path.join(root, "04_TASK_LOGS", "archive")\r\n    archive_count = 0\r\n    if os.path.isdir(archive_dir):\r\n        for root_dir, dirs, files in os.walk(archive_dir):\r\n            for f in files:\r\n                if f.endswith(".md") and f != "README.md":\r\n                    archive_count += 1\r\n\r\n    # Count by type\r\n    req_count = 0\r\n    rule_count = 0\r\n    disc_count = 0\r\n\r\n    for scan_dir in ["02_REQUIREMENTS/features"]:\r\n        req_path = os.path.join(root, scan_dir)\r\n        if os.path.isdir(req_path):\r\n            for f in os.listdir(req_path):\r\n                if f.endswith(".md") and f != "README.md":\r\n                    req_count += 1\r\n\r\n    for scan_dir in ["02_REQUIREMENTS/business_rules"]:\r\n        rule_path = os.path.join(root, scan_dir)\r\n        if os.path.isdir(rule_path):\r\n            for f in os.listdir(rule_path):\r\n                if f.endswith(".md") and f != "README.md":\r\n                    rule_count += 1\r\n\r\n    disc_path = os.path.join(root, "02_REQUIREMENTS", "discussions")\r\n    if os.path.isdir(disc_path):\r\n        for f in os.listdir(disc_path):\r\n            if f.endswith(".md") and f != "README.md":\r\n                disc_count += 1\r\n\r\n    # Knowledge articles\r\n    knowledge_dir = os.path.join(root, "98_KNOWLEDGE")\r\n    knowledge_count = 0\r\n    if os.path.isdir(knowledge_dir):\r\n        for root_dir, dirs, files in os.walk(knowledge_dir):\r\n            for f in files:\r\n                if f.endswith(".md") and f != "README.md":\r\n                    knowledge_count += 1\r\n\r\n    print(f"\\n  [Active RUN Tasks]: {len(active_tasks)}")\r\n    if active_tasks and show_recent > 0:\r\n        print(f"    Recent (top {min(show_recent, len(active_tasks))}):")\r\n        for task, mtime in active_tasks[:show_recent]:\r\n            dt = datetime.fromtimestamp(mtime)\r\n            print(f"      - {task} (modified: {dt.strftime(\'%Y-%m-%d %H:%M\')})")\r\n\r\n    print(f"\\n  [Archived Tasks]: {archive_count}")\r\n    print(f"\\n  [Authority Documents]:")\r\n    print(f"    - Feature REQs: {req_count}")\r\n    print(f"    - Business RULEs: {rule_count}")\r\n    print(f"    - Discussions: {disc_count}")\r\n    print(f"\\n  [Knowledge Articles]: {knowledge_count}")\r\n\r\n    return 0\r\n')
+    __stickytape_write_module('core/update.py', b'\r\nfrom core.config import CURRENT_VERSION, ROOT_DIR\r\nfrom core.migrate import is_v1_structure, migrate_v1_to_v2\r\nfrom utils.fs import (\r\n    create_missing_docs,\r\n    ensure_structure,\r\n    read_version,\r\n    update_system_templates,\r\n    update_tooling,\r\n    write_version,\r\n)\r\n\r\ndef init_or_update(dry_run: bool = False, force_migrate: bool = False) -> None:\r\n    """Initialize or update the memory system."""\r\n    installed_version = read_version(ROOT_DIR)\r\n    print(\r\n        f"Checking Memory System: Installed({installed_version}) "\r\n        f"vs Current({CURRENT_VERSION})"\r\n    )\r\n\r\n    needs_migration = force_migrate or (\r\n        installed_version.startswith("1.") and is_v1_structure(ROOT_DIR)\r\n    )\r\n\r\n    if needs_migration:\r\n        print("\\n[!] Detected v1.x structure. Migration required.")\r\n        migrate_v1_to_v2(ROOT_DIR, dry_run=dry_run)\r\n\r\n    ensure_structure(ROOT_DIR)\r\n    create_missing_docs(ROOT_DIR, dry_run=dry_run)\r\n    update_system_templates(ROOT_DIR, dry_run=dry_run)\r\n    update_tooling(ROOT_DIR, dry_run=dry_run)\r\n\r\n    if installed_version != CURRENT_VERSION:\r\n        write_version(ROOT_DIR, dry_run=dry_run)\r\n        if dry_run:\r\n            print(f"\\nWould update to v{CURRENT_VERSION}")\r\n        else:\r\n            print(f"\\n[OK] Updated to v{CURRENT_VERSION}")\r\n    else:\r\n        print("\\n[OK] Already up to date.")\r\n\r\n\r\n# ============================================================================\r\n# VALIDATION FUNCTIONS\r\n# ============================================================================\r\n')
+    __stickytape_write_module('core/migrate.py', b'\r\nimport os\r\nimport shutil\r\n\r\nfrom core.config import LEGACY_DIRS_TO_ARCHIVE, MIGRATION_MAP\r\nfrom utils.fs import safe_move\r\n\r\ndef migrate_v1_to_v2(root: str, dry_run: bool = False) -> None:\r\n    """Migrate from v1.x structure to v2.x structure."""\r\n    archive_dir = os.path.join(root, "99_ARCHIVE", "v1_migration")\r\n    print("\\n=== Migrating v1.x -> v2.x ===")\r\n\r\n    for old_rel, new_rel in MIGRATION_MAP.items():\r\n        old_path = os.path.join(root, old_rel)\r\n        if not os.path.exists(old_path):\r\n            continue\r\n\r\n        if new_rel is None:\r\n            archive_path = os.path.join(archive_dir, old_rel)\r\n            if dry_run:\r\n                print(f"  - Would archive: {old_rel}")\r\n            else:\r\n                if safe_move(old_path, archive_path):\r\n                    print(f"  * Archived: {old_rel}")\r\n        else:\r\n            new_path = os.path.join(root, new_rel)\r\n            if dry_run:\r\n                print(f"  - Would move: {old_rel} -> {new_rel}")\r\n            else:\r\n                if safe_move(old_path, new_path):\r\n                    print(f"  * Moved: {old_rel} -> {new_rel}")\r\n\r\n    for legacy_dir in LEGACY_DIRS_TO_ARCHIVE:\r\n        legacy_path = os.path.join(root, legacy_dir)\r\n        if os.path.isdir(legacy_path):\r\n            archive_path = os.path.join(archive_dir, legacy_dir)\r\n            if dry_run:\r\n                print(f"  - Would archive directory: {legacy_dir}")\r\n            else:\r\n                if not os.path.exists(archive_path):\r\n                    shutil.move(legacy_path, archive_path)\r\n                    print(f"  * Archived and removed: {legacy_dir}")\r\n                else:\r\n                    shutil.rmtree(legacy_path)\r\n                    print(f"  * Removed legacy (already archived): {legacy_dir}")\r\n\r\ndef is_v1_structure(root: str) -> bool:\r\n    """Check if the current structure is v1.x"""\r\n    v1_markers = [\r\n        os.path.join(root, "02_SERVICES"),\r\n        os.path.join(root, "03_MANAGEMENT"),\r\n        os.path.join(root, "90_TOOLING"),\r\n    ]\r\n    return any(os.path.exists(m) for m in v1_markers)\r\n')
+    __stickytape_write_module('core/reverse.py', b'\r\nimport os\r\nfrom pathlib import Path\r\nfrom typing import List\r\n\r\nfrom core.config import ROOT_DIR\r\n\r\nREVERSE_PROMPT_TEMPLATE = """# \xf0\x9f\xa7\xa9 Partial Reverse Engineering Request\r\n\r\n> **Focus Area**: `{focus_path}`\r\n\r\n## 1. Instructions\r\n\xeb\x8b\xb9\xec\x8b\xa0\xec\x9d\x80 \xed\x98\x84\xec\x9e\xac \xea\xb1\xb0\xeb\x8c\x80\xed\x95\x9c \xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c\xec\x9d\x98 **\xec\x9d\xbc\xeb\xb6\x80 \xeb\xaa\xa8\xeb\x93\x88(`{focus_path}`)**\xeb\xa7\x8c\xec\x9d\x84 \xeb\xb3\xb4\xea\xb3\xa0 \xec\x9e\x88\xec\x8a\xb5\xeb\x8b\x88\xeb\x8b\xa4.\r\n\xec\xa0\x84\xec\xb2\xb4 \xec\x8b\x9c\xec\x8a\xa4\xed\x85\x9c\xec\x9d\x84 \xeb\x8b\xa4 \xec\x95\x8c\xec\xa7\x80 \xeb\xaa\xbb\xed\x95\x98\xeb\xaf\x80\xeb\xa1\x9c, \xeb\xaa\xa8\xeb\xa5\xb4\xeb\x8a\x94 \xeb\xb6\x80\xeb\xb6\x84\xec\x9d\x80 \xec\x84\xa3\xeb\xb6\x88\xeb\xa6\xac \xea\xb0\x80\xec\xa0\x95\xed\x95\x98\xec\xa7\x80 \xeb\xa7\x90\xea\xb3\xa0 **\xed\x98\x84\xec\x9e\xac \xec\xbd\x94\xeb\x93\x9c \xeb\x82\xb4\xec\x9d\x98 \xeb\xa1\x9c\xec\xa7\x81\xec\x97\x90\xeb\xa7\x8c \xec\xa7\x91\xec\xa4\x91**\xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n\r\n## 2. Existing Knowledge (Context)\r\n\xed\x98\x84\xec\x9e\xac \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8\xec\x97\x90\xeb\x8a\x94 \xec\x9d\xb4\xeb\xaf\xb8 \xeb\x8b\xa4\xec\x9d\x8c \xeb\xac\xb8\xec\x84\x9c\xeb\x93\xa4\xec\x9d\xb4 \xec\xa0\x95\xec\x9d\x98\xeb\x90\x98\xec\x96\xb4 \xec\x9e\x88\xec\x8a\xb5\xeb\x8b\x88\xeb\x8b\xa4. \r\n**\xea\xb8\xb0\xec\xa1\xb4 \xea\xb7\x9c\xec\xb9\x99\xec\x9d\x84 \xec\xa4\x80\xec\x88\x98\xed\x95\x98\xea\xb3\xa0, \xec\xa4\x91\xeb\xb3\xb5\xeb\x90\x9c \xeb\xac\xb8\xec\x84\x9c\xeb\xa5\xbc \xec\x83\x9d\xec\x84\xb1\xed\x95\x98\xec\xa7\x80 \xeb\xa7\x88\xec\x84\xb8\xec\x9a\x94.**\r\n\r\n### Existing Rules (Business Rules)\r\n{existing_rules}\r\n\r\n### Existing Features (Requirements)\r\n{existing_reqs}\r\n\r\n## 3. Analysis Strategy\r\n1. **Local Rules**: \xec\x9d\xb4 \xeb\xaa\xa8\xeb\x93\x88 \xeb\x82\xb4\xeb\xb6\x80\xec\x97\x90\xec\x84\x9c\xeb\xa7\x8c \xec\x93\xb0\xec\x9d\xb4\xeb\x8a\x94 \xea\xb7\x9c\xec\xb9\x99\xec\x9d\x80 `RULE-[DOMAIN]-XXX`\xeb\xa1\x9c \xec\xa0\x95\xec\x9d\x98\xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n2. **Global Rules**: \xed\x94\x84\xeb\xa1\x9c\xec\xa0\x9d\xed\x8a\xb8 \xec\xa0\x84\xeb\xb0\x98\xec\x97\x90 \xec\x93\xb0\xec\x9d\xbc \xea\xb2\x83 \xea\xb0\x99\xec\x9d\x80 \xea\xb7\x9c\xec\xb9\x99\xec\x9d\xb4 \xeb\xb3\xb4\xec\x9d\xb4\xeb\xa9\xb4, `RULE-CORE-XXX`\xeb\xa1\x9c \xec\xa0\x9c\xec\x95\x88\xed\x95\x98\xeb\x90\x98 "\xed\x99\x95\xec\x9d\xb8 \xed\x95\x84\xec\x9a\x94"\xeb\x9d\xbc\xea\xb3\xa0 \xeb\xa9\x94\xeb\xaa\xa8\xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n3. **Features**: \xea\xb0\x81 \xec\xa3\xbc\xec\x9a\x94 \xea\xb8\xb0\xeb\x8a\xa5\xec\x9d\x84 `REQ-[DOMAIN]-XXX`\xeb\xa1\x9c \xec\xa0\x95\xec\x9d\x98\xed\x95\x98\xec\x84\xb8\xec\x9a\x94.\r\n\r\n---\r\n\r\n## 4. Target Code\r\n(\xec\x95\x84\xeb\x9e\x98 \xec\xbd\x94\xeb\x93\x9c\xeb\x8a\x94 `{focus_path}` \xea\xb2\xbd\xeb\xa1\x9c\xec\x9d\x98 \xed\x8c\x8c\xec\x9d\xbc\xeb\x93\xa4\xec\x9e\x85\xeb\x8b\x88\xeb\x8b\xa4.)\r\n\r\n{code_content}\r\n"""\r\n\r\ndef get_file_list(directory: str) -> List[str]:\r\n    """Get list of markdown files in a directory (without extension)."""\r\n    if not os.path.exists(directory):\r\n        return ["(None)"]\r\n    \r\n    files = [\r\n        f for f in os.listdir(directory) \r\n        if f.endswith(".md") and f != "README.md"\r\n    ]\r\n    return [os.path.splitext(f)[0] for f in sorted(files)] or ["(None)"]\r\n\r\ndef read_code_files(root: str, focus_subpath: str) -> str:\r\n    """Read code files from the focus path."""\r\n    target_path = os.path.join(root, focus_subpath)\r\n    \r\n    if not os.path.exists(target_path):\r\n        return f"Error: Path \'{target_path}\' does not exist."\r\n\r\n    code_content = []\r\n    \r\n    # If it\'s a file\r\n    if os.path.isfile(target_path):\r\n        try:\r\n            with open(target_path, "r", encoding="utf-8") as f:\r\n                code_content.append(f"### `{focus_subpath}`\\n```python\\n{f.read()}\\n```")\r\n        except Exception as e:\r\n            code_content.append(f"Error reading {target_path}: {e}")\r\n            \r\n    # If it\'s a directory\r\n    elif os.path.isdir(target_path):\r\n        for dirpath, _, filenames in os.walk(target_path):\r\n            for name in sorted(filenames):\r\n                # Simple filter: only python files, skip hidden/cache\r\n                if not name.endswith(".py") or name.startswith("__"):\r\n                    continue\r\n                    \r\n                full_path = os.path.join(dirpath, name)\r\n                rel_path = os.path.relpath(full_path, root)\r\n                \r\n                try:\r\n                    with open(full_path, "r", encoding="utf-8") as f:\r\n                        content = f.read()\r\n                        code_content.append(f"### `{rel_path}`\\n```python\\n{content}\\n```")\r\n                except Exception as e:\r\n                    code_content.append(f"Error reading {rel_path}: {e}")\r\n    \r\n    if not code_content:\r\n        return "(No Python files found in this path)"\r\n        \r\n    return "\\n\\n".join(code_content)\r\n\r\ndef generate_reverse_prompt(root: str, focus_path: str) -> None:\r\n    """Generate the reverse engineering prompt."""\r\n    print(f"\\n\xf0\x9f\x94\x8d Generating Reverse Engineering Prompt...")\r\n    print(f"   Focus: {focus_path}")\r\n    \r\n    # 1. Scan Context\r\n    # root is ".memory" folder\r\n    rules_dir = os.path.join(root, "02_REQUIREMENTS", "business_rules")\r\n    reqs_dir = os.path.join(root, "02_REQUIREMENTS", "features")\r\n    \r\n    existing_rules = get_file_list(rules_dir)\r\n    existing_reqs = get_file_list(reqs_dir)\r\n    \r\n    print(f"   Context: Found {len(existing_rules)} rules and {len(existing_reqs)} features.")\r\n    \r\n    # 2. Read Target Code\r\n    # Assuming root is relative ".memory", project root is current dir or parent of absolute root\r\n    # Since we run from project root, we can just use focus_path relative to CWD, \r\n    # or derive project_root from root if it is absolute.\r\n    # Let\'s derive safely:\r\n    if os.path.isabs(root):\r\n        project_root = os.path.dirname(root)\r\n    else:\r\n        project_root = "." # Assuming running from root\r\n        \r\n    code_content = read_code_files(project_root, focus_path)\r\n    \r\n    # 3. Generate Prompt\r\n    prompt = REVERSE_PROMPT_TEMPLATE.format(\r\n        focus_path=focus_path,\r\n        existing_rules="- " + "\\n- ".join(existing_rules),\r\n        existing_reqs="- " + "\\n- ".join(existing_reqs),\r\n        code_content=code_content\r\n    )\r\n    \r\n    output_path = os.path.join(root, "00_REVERSE_PROMPT.md")\r\n    with open(output_path, "w", encoding="utf-8") as f:\r\n        f.write(prompt)\r\n        \r\n    print(f"\xe2\x9c\x85 Generated: {output_path}")\r\n    print("\xf0\x9f\x93\x8b Next Step: Copy the content of 00_REVERSE_PROMPT.md to your AI Agent.\\n")\r\n')
+    #!/usr/bin/env python3
     """
-    bootstrap_dir = Path(ROOT_DIR)
-    context_dir = bootstrap_dir / "01_CONTEXT"
+    MemoryAtlas v2.4.0 - Memory-Driven Development Tool (Context Bootstrapping)
     
-    # Ensure base structure exists
-    bootstrap_dir.mkdir(exist_ok=True)
-    context_dir.mkdir(exist_ok=True)
+    === VERSION HISTORY ===
     
-    files_to_create = {
-        bootstrap_dir / "BOOTSTRAP_PROMPT.md": BOOTSTRAP_PROMPT_TEMPLATE,
-        context_dir / "CONVENTIONS.md": BOOTSTRAP_CONVENTIONS_TEMPLATE,
-        context_dir / "GOALS.md": BOOTSTRAP_GOALS_TEMPLATE,
-    }
+    v2.0.0: Initial What-How-Log structure
+    v2.1.0: Bug fixes, --doctor, template versioning
+    v2.1.1: **ID**: as authority, three-way validation
     
-    print("\n" + "=" * 60)
-    print("🚀 Context Bootstrapping (v2.4)")
-    print("=" * 60)
+    v2.2.0 - Authority Separation & Execution Unit:
+    1. REQ split into 3 layers: DECISION (authority) / DISCUSSION / RATIONALE
+    2. Must-Read field enforced in all REQ documents
+    3. Execution documents split into small units (RUN-*)
+    4. New folder structure: discussions/, rationale/
+    5. Validation for Must-Read links
+    6. RUN document format enforcement
     
-    for filepath, content in files_to_create.items():
-        if filepath.exists():
-            print(f"  [SKIP] {filepath} (already exists)")
-            continue
-        
-        if dry_run:
-            print(f"  [DRY-RUN] Would create: {filepath}")
-        else:
-            filepath.write_text(content, encoding="utf-8")
-            print(f"  [CREATE] {filepath}")
+    v2.2.1 - P0/P1 Fixes:
+      - Fixed header regex to support H1 (#) in addition to H2/H3
+      - Fixed Must-Read existence check to use regex instead of string contains
+      - Added ADR existence validation (no longer skipped)
+      - Expanded LINT_DIRS to include discussions and active RUNs
+      - Added 3-way ID consistency check for RUN documents
+      - Improved Must-Read parsing to return clean IDs (no links)
     
-    print("\n" + "-" * 60)
-    print("📋 다음 단계:")
-    print("   1. BOOTSTRAP_PROMPT.md를 AI 에이전트에게 전달하세요")
-    print("   2. AI가 질문하면 프로젝트에 맞게 답변하세요")
-    print("   3. AI가 CONVENTIONS.md와 GOALS.md를 완성합니다")
-    print("   4. 완료 후 `python memory_manager.py --update`로 나머지 구조 생성")
-    print("-" * 60 + "\n")
-
-
-def init_or_update(dry_run: bool = False, force_migrate: bool = False) -> None:
-    """Initialize or update the memory system."""
-    installed_version = read_version(ROOT_DIR)
-    print(
-        f"Checking Memory System: Installed({installed_version}) "
-        f"vs Current({CURRENT_VERSION})"
+    v2.3.0 - Smart Spec Edition:
+      - CONVENTIONS rewritten with 6 core sections + Boundaries
+      - Added Commands section for explicit test/lint/run commands
+      - Added Boundaries (Always/Ask First/Never) for AI behavior control
+      - REQ template updated with optional Constraints & Boundaries section
+      - RUN template updated with Self-Check verification checklist
+      - AGENT_RULES updated to enforce Boundaries compliance
+      - Enhanced AI predictability through explicit behavioral rules
+    
+    v2.5.0 (Current) - Reverse Engineering & Context Bootstrapping:
+      - Added --reverse mode for partial code analysis (Reverse Engineering)
+      - Added --focus argument for targeted analysis
+      - Context Bootstrapping (v2.4) features included
+      - "LLM이 관리할 폴더를 LLM이 초기화" 철학 강화
+    
+    === SMART SPEC MODEL ===
+    
+    6 Core Sections in CONVENTIONS:
+      1. Commands: Test, Lint, Run commands
+      2. Project Structure: Directory layout
+      3. Code Style: Formatting, naming conventions
+      4. Testing Strategy: Test requirements
+      5. Git Workflow: Branch/commit conventions
+      6. Boundaries: Always / Ask First / Never rules
+    
+    Boundaries (STRICT):
+      ✅ Always: Actions AI must always perform
+      ⚠️ Ask First: Actions requiring human approval
+      🚫 Never: Actions AI must never perform
+    
+    === AUTHORITY MODEL ===
+    
+    권위의 흐름 (Authority Flow):
+      REQ (Authority) → TECH_SPEC → CODE → RUN/LOG
+    
+    문서 등급 (Document Grades):
+      - DECISION (Authority): 최종 결정만. 짧고 단단하게.
+      - DISCUSSION: 사람-AI 조율 기록. LLM은 기본적으로 안 읽음.
+      - RATIONALE/ADR: 왜 그렇게 결정했는지. 필요 시만.
+      - EXECUTION (RUN): 작업 단위. 1목적 + 1검증 + 1결과.
+    
+    === EXECUTION UNIT ===
+    
+    실행 문서 = 1개의 목적 + 1개의 검증 방법 + 1개의 결과
+    - RUN-REQ-AUTH-001-step-01.md
+    - RUN-REQ-AUTH-001-step-02.md
+    - ...
+    
+    실행 문서 구조:
+    - Input: 읽을 문서 ID 목록 (P0 + Must-Read)
+    - Steps: 명령/행동
+    - Verification: 성공 조건 + Self-Check
+    - Output: 생성/수정 파일 목록
+    """
+    
+    import argparse
+    import sys
+    
+    from core.bootstrap import bootstrap_init
+    from core.checks import (
+        check_links,
+        check_requirements,
+        check_runs,
+        check_structure,
+        doctor,
+        lint_metadata,
     )
-
-    needs_migration = force_migrate or (
-        installed_version.startswith("1.") and is_v1_structure(ROOT_DIR)
-    )
-
-    if needs_migration:
-        print("\n[!] Detected v1.x structure. Migration required.")
-        migrate_v1_to_v2(ROOT_DIR, dry_run=dry_run)
-
-    ensure_structure(ROOT_DIR)
-    create_missing_docs(ROOT_DIR, dry_run=dry_run)
-    update_system_templates(ROOT_DIR, dry_run=dry_run)
-    update_tooling(ROOT_DIR, dry_run=dry_run)
-
-    if installed_version != CURRENT_VERSION:
-        write_version(ROOT_DIR, dry_run=dry_run)
-        if dry_run:
-            print(f"\nWould update to v{CURRENT_VERSION}")
-        else:
-            print(f"\n[OK] Updated to v{CURRENT_VERSION}")
-    else:
-        print("\n[OK] Already up to date.")
-
-
-# ============================================================================
-# VALIDATION FUNCTIONS
-# ============================================================================
-
-def iter_md_files(root: str, dirs: list[str]) -> list[str]:
-    """Iterate over markdown files in specified directories."""
-    files = []
-    for base in dirs:
-        base_path = os.path.join(root, base)
-        if not os.path.isdir(base_path):
-            continue
-        for dirpath, _, filenames in os.walk(base_path):
-            for name in filenames:
-                if name.lower().endswith(".md"):
-                    files.append(os.path.join(dirpath, name))
-    return files
-
-
-def get_doc_type(path: str) -> str:
-    """Determine document type from path."""
-    if "features" in path:
-        return "features"
-    if "business_rules" in path:
-        return "business_rules"
-    if "decisions" in path:
-        return "decisions"
-    if "discussions" in path:
-        return "discussions"
-    if "active" in path and "RUN-" in os.path.basename(path):
-        return "runs"
-    return "default"
-
-
-def check_structure(root: str) -> int:
-    """Validate directory structure and required files."""
-    issues = 0
-    if not os.path.isdir(root):
-        print(f"! Missing root directory: {root}")
-        return 1
-
-    for folder in DIRS:
-        path = os.path.join(root, folder)
-        if not os.path.isdir(path):
-            print(f"! Missing directory: {folder}")
-            issues += 1
-
-    required_files = set(DOC_TEMPLATES.keys())
-    required_files.add("VERSION")
-    required_files.update(SYSTEM_TEMPLATES.keys())
-
-    for rel_path in sorted(required_files):
-        path = os.path.join(root, rel_path)
-        if not os.path.exists(path):
-            print(f"! Missing file: {rel_path}")
-            issues += 1
-
-    installed_version = read_version(root)
-    if installed_version != CURRENT_VERSION:
-        print(
-            f"! Version mismatch: installed {installed_version} "
-            f"vs current {CURRENT_VERSION}"
+    from core.config import CURRENT_VERSION, ROOT_DIR
+    from core.status import status_report
+    from core.update import init_or_update
+    from core.reverse import generate_reverse_prompt
+    
+    def parse_args() -> "argparse.Namespace":
+        parser = argparse.ArgumentParser(
+            description=f"MemoryAtlas v{CURRENT_VERSION} - Memory-Driven Development Tool",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""
+    Examples:
+      python memory_manager.py              # Initialize/update system
+      python memory_manager.py --doctor     # Run all checks
+      python memory_manager.py --status     # Show task summary
+      python memory_manager.py --dry-run    # Preview changes
+            """
         )
-        issues += 1
-
-    print(f"\nStructure check: {issues} issue(s)")
-    return issues
-
-
-def lint_metadata(root: str) -> int:
-    """Check metadata headers in documents."""
-    issues = 0
-    for path in iter_md_files(root, LINT_DIRS):
-        name = os.path.basename(path)
-        if name in LINT_SKIP_FILES:
-            continue
-
-        text = read_text(path)
-        head = "\n".join(text.splitlines()[:40])
-
-        doc_type = get_doc_type(path)
-        required_fields = HEADER_FIELDS_BY_TYPE.get(
-            doc_type, HEADER_FIELDS_BY_TYPE["default"]
+    
+        update_group = parser.add_argument_group("Update Commands")
+        update_group.add_argument(
+            "--migrate",
+            action="store_true",
+            help="Force migration from v1.x to v2.x structure.",
         )
-
-        missing = [field for field in required_fields if field not in head]
-        if missing:
-            rel_path = os.path.relpath(path, root)
-            print(f"! Missing header fields in {rel_path}: {', '.join(missing)}")
-            issues += 1
-
-    print(f"Metadata lint: {issues} issue(s)")
-    return issues
-
-
-def iter_links(text: str) -> list[str]:
-    """Extract markdown links from text, excluding code blocks."""
-    links = []
-    in_code = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            in_code = not in_code
-            continue
-        if in_code:
-            continue
-        for match in LINK_RE.finditer(line):
-            links.append(match.group(1).strip())
-    return links
-
-
-def check_links(root: str, allow_absolute: bool = False) -> int:
-    """Validate links in markdown documents."""
-    issues = 0
-    for path in iter_md_files(root, LINK_SCAN_DIRS):
-        text = read_text(path)
-        for target in iter_links(text):
-            if not target:
-                continue
-            if target.startswith("#"):
-                continue
-            if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", target):
-                continue
-
-            clean = target.split("#", 1)[0].split("?", 1)[0].strip()
-            if not clean:
-                continue
-            if clean.startswith("<") and clean.endswith(">"):
-                clean = clean[1:-1].strip()
-
-            is_absolute = os.path.isabs(clean) or re.match(r"^[A-Za-z]:", clean)
-            if is_absolute:
-                rel_path = os.path.relpath(path, root)
-                if not allow_absolute:
-                    print(f"! Absolute path link forbidden in {rel_path}: {target}")
-                    issues += 1
-                elif not os.path.exists(clean):
-                    print(f"! Broken absolute link in {rel_path}: {target}")
-                    issues += 1
-                continue
-
-            resolved = os.path.normpath(os.path.join(os.path.dirname(path), clean))
-            if not os.path.exists(resolved):
-                rel_path = os.path.relpath(path, root)
-                print(f"! Broken link in {rel_path}: {target}")
-                issues += 1
-
-    print(f"Link check: {issues} issue(s)")
-    return issues
-
-
-def extract_id_from_filename(filename: str) -> Optional[str]:
-    """Extract document ID from filename."""
-    name = os.path.splitext(filename)[0]
-    if REQ_ID_PATTERN.match(name):
-        return name
-    if RULE_ID_PATTERN.match(name):
-        return name
-    if DISC_ID_PATTERN.match(name):
-        return name
-    if RUN_ID_PATTERN.match(name):
-        return name
-    return None
-
-
-def extract_meta_id(text: str) -> Optional[str]:
-    """Extract document ID from **ID**: metadata line (authority source)."""
-    match = META_ID_RE.search(text)
-    if match:
-        return match.group(1)
-    return None
-
-
-def parse_must_read(text: str) -> tuple[list[str], list[str], list[str]]:
-    """Parse Must-Read and return (ids, invalid_links, disallowed_ids)."""
-    match = MUST_READ_RE.search(text)
-    if not match:
-        return [], [], []
-
-    refs = match.group(1).strip()
-    ids: list[str] = []
-    invalid_links: list[str] = []
-    disallowed_ids: list[str] = []
-    seen_ids: set[str] = set()
-    seen_invalid: set[str] = set()
-    seen_disallowed: set[str] = set()
-
-    for link_match in MUST_READ_LINK_RE.finditer(refs):
-        link_text = link_match.group(1).strip()
-        if not link_text:
-            if "<empty>" not in seen_invalid:
-                invalid_links.append("<empty>")
-                seen_invalid.add("<empty>")
-            continue
-        if MUST_READ_ANY_ID_RE.fullmatch(link_text):
-            if MUST_READ_ALLOWED_ID_RE.fullmatch(link_text):
-                if link_text not in seen_ids:
-                    ids.append(link_text)
-                    seen_ids.add(link_text)
-            else:
-                if link_text not in seen_disallowed:
-                    disallowed_ids.append(link_text)
-                    seen_disallowed.add(link_text)
-        else:
-            if link_text not in seen_invalid:
-                invalid_links.append(link_text)
-                seen_invalid.add(link_text)
-
-    refs_without_links = MUST_READ_LINK_RE.sub(" ", refs)
-    for id_match in MUST_READ_ANY_ID_RE.finditer(refs_without_links):
-        candidate = id_match.group(0)
-        if MUST_READ_ALLOWED_ID_RE.fullmatch(candidate):
-            if candidate not in seen_ids:
-                ids.append(candidate)
-                seen_ids.add(candidate)
-        else:
-            if candidate not in seen_disallowed:
-                disallowed_ids.append(candidate)
-                seen_disallowed.add(candidate)
-
-    return ids, invalid_links, disallowed_ids
-
-
-def extract_must_read(text: str) -> list[str]:
-    """Extract allowed Must-Read IDs from document."""
-    ids, _, _ = parse_must_read(text)
-    return ids
-
-
-def extract_header_ids(
-    text: str, patterns: Optional[list[re.Pattern]] = None
-) -> list[str]:
-    """Extract IDs from header lines (for sync validation)."""
-    header_ids: list[str] = []
-    scan_patterns = patterns or [REQ_HEADER_RE, RULE_HEADER_RE]
-    for pattern in scan_patterns:
-        for match in pattern.finditer(text):
-            header_ids.append(match.group(1))
-    return header_ids
-
-
-def check_requirements(root: str) -> int:
-    """Validate requirement documents with authority model."""
-    issues = 0
-    seen_ids: dict[str, str] = {}
-    all_ids: set[str] = set()
-
-    # First pass: collect all IDs
-    for path in iter_md_files(root, REQ_SCAN_DIRS):
-        text = read_text(path)
-        meta_id = extract_meta_id(text)
-        if meta_id:
-            all_ids.add(meta_id)
-
-    # Fix F: Collect DISC IDs so they can be referenced
-    for path in iter_md_files(root, ["02_REQUIREMENTS/discussions"]):
-        text = read_text(path)
-        meta_id = extract_meta_id(text)
-        if meta_id:
-            all_ids.add(meta_id)
-
-    # Also collect RULE IDs
-    for path in iter_md_files(root, ["02_REQUIREMENTS/business_rules"]):
-        text = read_text(path)
-        meta_id = extract_meta_id(text)
-        if meta_id:
-            all_ids.add(meta_id)
-
-    # Also collect ADR IDs (v2.2.1: P0 fix - validate ADR references)
-    for path in iter_md_files(root, ["03_TECH_SPECS/decisions"]):
-        text = read_text(path)
-        meta_id = extract_meta_id(text)
-        if meta_id:
-            all_ids.add(meta_id)
-        else:
-            # Fallback: extract ADR ID from filename (ADR-NNN-*.md)
-            filename = os.path.basename(path)
-            adr_match = re.match(r"(ADR-\d{3})", filename)
-            if adr_match:
-                all_ids.add(adr_match.group(1))
-
-    # Second pass: validate
-    for path in iter_md_files(root, REQ_SCAN_DIRS):
-        text = read_text(path)
-        rel_path = os.path.relpath(path, root)
-        filename = os.path.basename(path)
-
-        if filename == "README.md":
-            continue
-
-        # === AUTHORITY: Extract ID from **ID**: metadata ===
-        meta_id = extract_meta_id(text)
-        filename_id = extract_id_from_filename(filename)
-        if (filename_id and filename_id.startswith("REQ-")) or (
-            meta_id and meta_id.startswith("REQ-")
-        ):
-            expected_patterns = [REQ_HEADER_RE]
-        elif (filename_id and filename_id.startswith("RULE-")) or (
-            meta_id and meta_id.startswith("RULE-")
-        ):
-            expected_patterns = [RULE_HEADER_RE]
-        else:
-            expected_patterns = [REQ_HEADER_RE, RULE_HEADER_RE]
-
-        header_ids = extract_header_ids(text, patterns=expected_patterns)
-        header_ids_any = extract_header_ids(
-            text, patterns=[REQ_HEADER_RE, RULE_HEADER_RE, DISC_HEADER_RE, RUN_HEADER_RE]
+        update_group.add_argument(
+            "--update",
+            action="store_true",
+            help="Run init/update even when using checks.",
         )
-
-        # --- Validation 1: **ID**: must exist ---
-        if meta_id is None:
-            print(f"! Missing **ID**: metadata in {rel_path}")
-            print(f"    -> Add: > **ID**: REQ-DOMAIN-NNN or RULE-DOMAIN-NNN")
-            issues += 1
-            if filename_id:
-                meta_id = filename_id
-
-        # --- Validation 2: Filename format check ---
-        if filename_id is None:
-            print(f"! Invalid filename format in {rel_path}")
-            print(f"    -> Expected: REQ-[DOMAIN]-[NNN].md or RULE-[DOMAIN]-[NNN].md")
-            issues += 1
-
-        # --- Validation 3: Filename must match **ID**: ---
-        if meta_id and filename_id and meta_id != filename_id:
-            print(f"! Filename does not match **ID**: in {rel_path}")
-            print(f"    -> **ID**: {meta_id}")
-            print(f"    -> Filename: {filename_id}")
-            issues += 1
-
-        # --- Validation 4: Header must match **ID**: ---
-        if meta_id and header_ids:
-            if meta_id not in header_ids:
-                print(f"! Header does not match **ID**: in {rel_path}")
-                print(f"    -> **ID**: {meta_id}")
-                print(f"    -> Header(s): {', '.join(header_ids)}")
-                issues += 1
-        elif meta_id and not header_ids:
-            if header_ids_any:
-                print(f"! Header type mismatch in {rel_path}")
-                print(f"    -> **ID**: {meta_id}")
-                print(f"    -> Header(s): {', '.join(header_ids_any)}")
-                issues += 1
-            else:
-                print(f"! Missing header with ID in {rel_path}")
-                print(f"    -> Fix: Add header # [{meta_id}] Feature/Rule Name")
-                issues += 1
-
-        # --- Validation 5: Must-Read field exists (v2.2) ---
-        must_read_match = MUST_READ_RE.search(text)
-        must_read_ids, invalid_links, disallowed_ids = parse_must_read(text)
-        if must_read_match is None:
-            print(f"! Missing **Must-Read**: field in {rel_path}")
-            print(f"    -> Add: > **Must-Read**: RULE-XXX-001, ADR-XXX")
-            issues += 1
+        update_group.add_argument(
+            "--bootstrap",
+            action="store_true",
+            help="Create BOOTSTRAP_PROMPT.md for AI-driven project initialization (Context Bootstrapping).",
+        )
+        update_group.add_argument(
+            "--reverse",
+            action="store_true",
+            help="Generate reverse engineering prompt for partial code analysis.",
+        )
+        update_group.add_argument(
+            "--focus",
+            type=str,
+            help="Focus path for reverse engineering (e.g., src/auth).",
+        )
+    
+        check_group = parser.add_argument_group("Check Commands")
+        check_group.add_argument(
+            "--doctor",
+            action="store_true",
+            help="Run all checks (structure, lint, links, requirements, runs).",
+        )
+        check_group.add_argument(
+            "--check",
+            action="store_true",
+            help="Validate structure and required files.",
+        )
+        check_group.add_argument(
+            "--lint",
+            action="store_true",
+            help="Check metadata headers in key documents.",
+        )
+        check_group.add_argument(
+            "--links",
+            action="store_true",
+            help="Validate links in .memory docs.",
+        )
+        check_group.add_argument(
+            "--allow-absolute-links",
+            action="store_true",
+            help="Allow absolute paths in links (not recommended).",
+        )
+        check_group.add_argument(
+            "--req",
+            action="store_true",
+            help="Validate requirement documents (authority model).",
+        )
+        check_group.add_argument(
+            "--runs",
+            action="store_true",
+            help="Validate RUN documents (execution unit model).",
+        )
+    
+        status_group = parser.add_argument_group("Status Commands")
+        status_group.add_argument(
+            "--status",
+            action="store_true",
+            help="Show status report of tasks and knowledge.",
+        )
+        status_group.add_argument(
+            "--recent",
+            type=int,
+            default=5,
+            metavar="N",
+            help="Number of recent active tasks to show (default: 5).",
+        )
+    
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Preview changes without writing.",
+        )
+    
+        return parser.parse_args()
+    
+    def main() -> int:
+        args = parse_args()
+    
+        # Bootstrap mode: create AI kick-off meeting files and exit
+        if args.bootstrap:
+            bootstrap_init(dry_run=args.dry_run)
+            return 0
+    
+        if args.reverse:
+            if not args.focus:
+                print("Error: --focus is required when using --reverse (e.g., --focus src/core)")
+                return 1
+            generate_reverse_prompt(ROOT_DIR, args.focus)
+            return 0
+    
+        run_checks = any([
+            args.doctor, args.check, args.lint, args.links, args.req, args.runs, args.status
+        ])
+        run_update = args.update or args.migrate or not run_checks
+    
+        exit_code = 0
+    
+        if run_update:
+            init_or_update(dry_run=args.dry_run, force_migrate=args.migrate)
+    
+        if args.doctor:
+            exit_code = doctor(ROOT_DIR, allow_absolute_links=args.allow_absolute_links)
         else:
-            if invalid_links:
-                print(f"! Must-Read link text must be an ID in {rel_path}")
-                print(f"    -> Invalid link text: {', '.join(invalid_links)}")
-                issues += 1
-            if disallowed_ids:
-                print(f"! Must-Read allows only RULE/ADR IDs in {rel_path}")
-                print(f"    -> Disallowed ID(s): {', '.join(disallowed_ids)}")
-                issues += 1
-            # Fix B: Fail if Must-Read is empty (but present)
-            if not must_read_ids:
-                print(f"! Empty **Must-Read**: list in {rel_path}")
-                print(
-                    f"    -> MUST specify at least one ID (or 'None' if genuinely none, though rare)"
-                )
-                issues += 1
-
-        # --- Validation 6: Must-Read references exist (v2.2.1: includes ADR) ---
-        for ref_id in must_read_ids:
-            if ref_id and ref_id not in all_ids:
-                print(f"! Must-Read reference not found in {rel_path}: {ref_id}")
-                issues += 1
-
-        # --- Validation 7: Duplicate ID check ---
-        if meta_id:
-            if meta_id in seen_ids:
-                print(
-                    f"! Duplicate ID {meta_id} in {rel_path} "
-                    f"(also in {seen_ids[meta_id]})"
-                )
-                issues += 1
-            else:
-                seen_ids[meta_id] = rel_path
-
-    print(f"Requirement check: {issues} issue(s)")
-    return issues
-
-
-def check_runs(root: str) -> int:
-    """Validate RUN documents (Execution Unit model) with 3-way ID consistency."""
-    issues = 0
-
-    for path in iter_md_files(root, RUN_SCAN_DIRS):
-        text = read_text(path)
-        rel_path = os.path.relpath(path, root)
-        filename = os.path.basename(path)
-
-        if filename == "README.md":
-            continue
-
-        # === v2.2.1: 3-way ID consistency for RUN documents ===
-        meta_id = extract_meta_id(text)
-        filename_id = os.path.splitext(filename)[0]  # RUN ID is full filename
-        header_match = RUN_HEADER_RE.search(text)
-        header_id = header_match.group(1) if header_match else None
-
-        # Check filename format
-        if not RUN_ID_PATTERN.match(filename_id):
-            print(f"! Invalid RUN filename format: {rel_path}")
-            print(f"    -> Expected: RUN-REQ-[DOMAIN]-[NNN]-step-[NN].md")
-            issues += 1
-
-        # --- Validation: **ID**: must exist ---
-        if meta_id is None:
-            print(f"! Missing **ID**: metadata in {rel_path}")
-            print(f"    -> Add: > **ID**: {filename_id}")
-            issues += 1
-            meta_id = filename_id  # Fallback for subsequent checks
-
-        # --- Validation: Filename must match **ID**: ---
-        if meta_id and meta_id != filename_id:
-            print(f"! Filename does not match **ID**: in {rel_path}")
-            print(f"    -> **ID**: {meta_id}")
-            print(f"    -> Filename: {filename_id}")
-            issues += 1
-
-        # --- Validation: Header must match **ID**: ---
-        if meta_id and header_id and meta_id != header_id:
-            print(f"! Header does not match **ID**: in {rel_path}")
-            print(f"    -> **ID**: {meta_id}")
-            print(f"    -> Header: {header_id}")
-            issues += 1
-        elif meta_id and not header_id:
-            print(f"! Missing header with ID in {rel_path}")
-            print(f"    -> Fix: Add header # [{meta_id}] Step Description")
-            issues += 1
-
-        # Check required fields
-        # Check required fields
-        # Fix E: Use regex search instead of string containment
-        if not RUN_INPUT_RE.search(text):
-            print(f"! Missing **Input**: field in {rel_path}")
-            issues += 1
-
-        if not RUN_VERIFICATION_RE.search(text):
-            print(f"! Missing **Verification**: field in {rel_path}")
-            issues += 1
-
-        # Check Output section exists
-        # Fix D: RUN_OUTPUT_RE updated to support ### Output
-        if not RUN_OUTPUT_RE.search(text):
-            print(f"! Missing ## Output section in {rel_path}")
-            issues += 1
-
-    print(f"RUN document check: {issues} issue(s)")
-    return issues
-
-
-def check_discussions(root: str) -> int:
-    """Validate DISCUSSION documents (3-way ID consistency)."""
-    issues = 0
-    # Fix F: Add DISC validation
-    for path in iter_md_files(root, ["02_REQUIREMENTS/discussions"]):
-        text = read_text(path)
-        rel_path = os.path.relpath(path, root)
-        filename = os.path.basename(path)
-
-        if filename == "README.md":
-            continue
-
-        meta_id = extract_meta_id(text)
-        filename_id = extract_id_from_filename(filename)
-        header_ids = extract_header_ids(text, patterns=[DISC_HEADER_RE])
-
-        # 1. **ID**: metadata existence
-        if meta_id is None:
-            print(f"! Missing **ID**: metadata in {rel_path}")
-            issues += 1
-            if filename_id:
-                meta_id = filename_id
-
-        # 2. Filename format
-        if filename_id is None:
-            print(f"! Invalid DISC filename format in {rel_path}")
-            issues += 1
-
-        # 3. Filename vs Meta ID
-        if meta_id and filename_id and meta_id != filename_id:
-            print(f"! Filename does not match **ID**: in {rel_path}")
-            print(f"    -> **ID**: {meta_id}")
-            print(f"    -> Filename: {filename_id}")
-            issues += 1
-
-        # 4. Header vs Meta ID
-        if meta_id and header_ids:
-            if meta_id not in header_ids:
-                print(f"! Header does not match **ID**: in {rel_path}")
-                print(f"    -> **ID**: {meta_id}")
-                print(f"    -> Header(s): {', '.join(header_ids)}")
-                issues += 1
-        elif meta_id and not header_ids:
-            print(f"! Missing header with ID in {rel_path}")
-            print(f"    -> Fix: Add header # [{meta_id}] Discussion Title")
-            issues += 1
-
-    print(f"Discussion check: {issues} issue(s)")
-    return issues
-
-
-def status_report(root: str, show_recent: int = 5) -> int:
-    """Report on active tasks and knowledge base."""
-    print("\n=== Status Report ===")
-
-    # Count active tasks
-    active_dir = os.path.join(root, "04_TASK_LOGS", "active")
-    active_tasks: list[tuple[str, float]] = []
-    if os.path.isdir(active_dir):
-        for f in os.listdir(active_dir):
-            if f.endswith(".md") and f != "README.md":
-                fpath = os.path.join(active_dir, f)
-                mtime = os.path.getmtime(fpath)
-                active_tasks.append((f, mtime))
-
-    active_tasks.sort(key=lambda x: x[1], reverse=True)
-
-    # Count archived tasks
-    archive_dir = os.path.join(root, "04_TASK_LOGS", "archive")
-    archive_count = 0
-    if os.path.isdir(archive_dir):
-        for root_dir, dirs, files in os.walk(archive_dir):
-            for f in files:
-                if f.endswith(".md") and f != "README.md":
-                    archive_count += 1
-
-    # Count by type
-    req_count = 0
-    rule_count = 0
-    disc_count = 0
-
-    for scan_dir in ["02_REQUIREMENTS/features"]:
-        req_path = os.path.join(root, scan_dir)
-        if os.path.isdir(req_path):
-            for f in os.listdir(req_path):
-                if f.endswith(".md") and f != "README.md":
-                    req_count += 1
-
-    for scan_dir in ["02_REQUIREMENTS/business_rules"]:
-        rule_path = os.path.join(root, scan_dir)
-        if os.path.isdir(rule_path):
-            for f in os.listdir(rule_path):
-                if f.endswith(".md") and f != "README.md":
-                    rule_count += 1
-
-    disc_path = os.path.join(root, "02_REQUIREMENTS", "discussions")
-    if os.path.isdir(disc_path):
-        for f in os.listdir(disc_path):
-            if f.endswith(".md") and f != "README.md":
-                disc_count += 1
-
-    # Knowledge articles
-    knowledge_dir = os.path.join(root, "98_KNOWLEDGE")
-    knowledge_count = 0
-    if os.path.isdir(knowledge_dir):
-        for root_dir, dirs, files in os.walk(knowledge_dir):
-            for f in files:
-                if f.endswith(".md") and f != "README.md":
-                    knowledge_count += 1
-
-    print(f"\n  [Active RUN Tasks]: {len(active_tasks)}")
-    if active_tasks and show_recent > 0:
-        print(f"    Recent (top {min(show_recent, len(active_tasks))}):")
-        for task, mtime in active_tasks[:show_recent]:
-            dt = datetime.fromtimestamp(mtime)
-            print(f"      - {task} (modified: {dt.strftime('%Y-%m-%d %H:%M')})")
-
-    print(f"\n  [Archived Tasks]: {archive_count}")
-    print(f"\n  [Authority Documents]:")
-    print(f"    - Feature REQs: {req_count}")
-    print(f"    - Business RULEs: {rule_count}")
-    print(f"    - Discussions: {disc_count}")
-    print(f"\n  [Knowledge Articles]: {knowledge_count}")
-
-    return 0
-
-
-def doctor(root: str, allow_absolute_links: bool = False) -> int:
-    """Run all checks at once."""
-    print("\n" + "=" * 60)
-    print("  MemoryAtlas Doctor - Full System Check")
-    print("=" * 60)
-
-    total_issues = 0
-
-    print("\n[1/6] Structure Check")
-    print("-" * 40)
-    total_issues += check_structure(root)
-
-    print("\n[2/6] Metadata Lint")
-    print("-" * 40)
-    total_issues += lint_metadata(root)
-
-    print("\n[3/6] Link Validation")
-    print("-" * 40)
-    total_issues += check_links(root, allow_absolute=allow_absolute_links)
-
-    print("\n[4/6] Requirement Validation (Authority)")
-    print("-" * 40)
-    total_issues += check_requirements(root)
-
-    print("\n[5/6] RUN Document Validation (Execution)")
-    print("-" * 40)
-    total_issues += check_runs(root)
-
-    print("\n[6/6] Discussion Validation (Reference)")
-    print("-" * 40)
-    total_issues += check_discussions(root)
-
-    print("\n" + "=" * 60)
-    if total_issues == 0:
-        print("  [OK] All checks passed!")
-    else:
-        print(f"  [!] Total issues found: {total_issues}")
-    print("=" * 60)
-
-    return total_issues
-
-
-# ============================================================================
-# MAIN
-# ============================================================================
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=f"MemoryAtlas v{CURRENT_VERSION} - Memory-Driven Development Tool",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python memory_manager.py              # Initialize/update system
-  python memory_manager.py --doctor     # Run all checks
-  python memory_manager.py --status     # Show task summary
-  python memory_manager.py --dry-run    # Preview changes
-        """
-    )
-
-    update_group = parser.add_argument_group("Update Commands")
-    update_group.add_argument(
-        "--migrate",
-        action="store_true",
-        help="Force migration from v1.x to v2.x structure.",
-    )
-    update_group.add_argument(
-        "--update",
-        action="store_true",
-        help="Run init/update even when using checks.",
-    )
-    update_group.add_argument(
-        "--bootstrap",
-        action="store_true",
-        help="Create BOOTSTRAP_PROMPT.md for AI-driven project initialization (Context Bootstrapping).",
-    )
-
-    check_group = parser.add_argument_group("Check Commands")
-    check_group.add_argument(
-        "--doctor",
-        action="store_true",
-        help="Run all checks (structure, lint, links, requirements, runs).",
-    )
-    check_group.add_argument(
-        "--check",
-        action="store_true",
-        help="Validate structure and required files.",
-    )
-    check_group.add_argument(
-        "--lint",
-        action="store_true",
-        help="Check metadata headers in key documents.",
-    )
-    check_group.add_argument(
-        "--links",
-        action="store_true",
-        help="Validate links in .memory docs.",
-    )
-    check_group.add_argument(
-        "--allow-absolute-links",
-        action="store_true",
-        help="Allow absolute paths in links (not recommended).",
-    )
-    check_group.add_argument(
-        "--req",
-        action="store_true",
-        help="Validate requirement documents (authority model).",
-    )
-    check_group.add_argument(
-        "--runs",
-        action="store_true",
-        help="Validate RUN documents (execution unit model).",
-    )
-
-    status_group = parser.add_argument_group("Status Commands")
-    status_group.add_argument(
-        "--status",
-        action="store_true",
-        help="Show status report of tasks and knowledge.",
-    )
-    status_group.add_argument(
-        "--recent",
-        type=int,
-        default=5,
-        metavar="N",
-        help="Number of recent active tasks to show (default: 5).",
-    )
-
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview changes without writing.",
-    )
-
-    return parser.parse_args()
-
-
-def main() -> int:
-    args = parse_args()
-
-    # Bootstrap mode: create AI kick-off meeting files and exit
-    if args.bootstrap:
-        bootstrap_init(dry_run=args.dry_run)
-        return 0
-
-    run_checks = any([
-        args.doctor, args.check, args.lint, args.links, args.req, args.runs, args.status
-    ])
-    run_update = args.update or args.migrate or not run_checks
-
-    exit_code = 0
-
-    if run_update:
-        init_or_update(dry_run=args.dry_run, force_migrate=args.migrate)
-
-    if args.doctor:
-        exit_code = doctor(ROOT_DIR, allow_absolute_links=args.allow_absolute_links)
-    else:
-        if args.check:
-            exit_code += check_structure(ROOT_DIR)
-        if args.lint:
-            exit_code += lint_metadata(ROOT_DIR)
-        if args.links:
-            exit_code += check_links(ROOT_DIR, allow_absolute=args.allow_absolute_links)
-        if args.req:
-            exit_code += check_requirements(ROOT_DIR)
-        if args.runs:
-            exit_code += check_runs(ROOT_DIR)
-
-    if args.status:
-        status_report(ROOT_DIR, show_recent=args.recent)
-
-    return exit_code
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+            if args.check:
+                exit_code += check_structure(ROOT_DIR)
+            if args.lint:
+                exit_code += lint_metadata(ROOT_DIR)
+            if args.links:
+                exit_code += check_links(ROOT_DIR, allow_absolute=args.allow_absolute_links)
+            if args.req:
+                exit_code += check_requirements(ROOT_DIR)
+            if args.runs:
+                exit_code += check_runs(ROOT_DIR)
+    
+        if args.status:
+            status_report(ROOT_DIR, show_recent=args.recent)
+    
+        return exit_code
+    
+    
+    if __name__ == "__main__":
+        sys.exit(main())
+    
+    
+    
+    

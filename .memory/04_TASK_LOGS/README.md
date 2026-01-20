@@ -1,36 +1,41 @@
-# Task Logs (HISTORY)
+# Task Logs (Execution Layer)
 
-> 작업 기록을 관리합니다.
-> 진행 중(active)과 완료(archive)를 분리합니다.
+> **Template-Version**: 2.4
+>
+> 실행 기록을 관리합니다.
+
+## Execution Unit Model (v2.2)
+
+```
+실행 문서 1개 = 1목적 + 1검증 + 1결과
+
+RUN-REQ-AUTH-001-step-01.md  (로그인 폼 구현)
+RUN-REQ-AUTH-001-step-02.md  (API 연동)
+RUN-REQ-AUTH-001-step-03.md  (테스트 작성)
+```
+
+### Why Small Units?
+
+- 큰 RUN 금지: 한번 실행에 너무 많은 변경이 묶이면 추적 불가
+- 1:1 대응: 변경 이유를 명확히 추적 가능
+- 검색 가능: 로그가 쌓여도 의미있는 검색
 
 ## Structure
 
 ```
 04_TASK_LOGS/
-├── active/             # 현재 작업 중
-│   └── YYYY-MM-DD_TYPE_Description.md
+├── active/             # 실행 중 (RUN-*)
+│   └── RUN-REQ-AUTH-001-step-01.md
 └── archive/            # 완료된 작업
-    └── YYYY-MM/        # 월별 정리
-        └── *.md
+    └── YYYY-MM/
+        └── RUN-*.md
 ```
 
-## Workflow
-1. **Create**: 새 작업은 `active/`에 생성
-2. **Execute**: 작업 중 상태 업데이트
-3. **Archive**: 완료 시 `archive/YYYY-MM/`로 이동
+## Naming Convention
 
-## Naming Convention (MANDATORY)
-`[YYYY-MM-DD]_[Type]_[ShortDescription].md`
+`RUN-[REQ|RULE]-[DOMAIN]-[NNN]-step-[NN].md`
 
-### Types
-| Type | Description |
-|------|-------------|
-| `FEAT` | 새 기능 |
-| `FIX` | 버그 수정 |
-| `DOCS` | 문서화 |
-| `REFACTOR` | 코드 정리 |
-| `MAINT` | 유지보수 |
-
-### Examples
-- `2024-01-16_FEAT_UserLogin.md`
-- `2024-01-17_FIX_MemoryLeak.md`
+Examples:
+- `RUN-REQ-AUTH-001-step-01.md`
+- `RUN-REQ-AUTH-001-step-02.md`
+- `RUN-RULE-DATA-001-step-01.md`

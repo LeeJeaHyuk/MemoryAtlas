@@ -1,24 +1,62 @@
-# Requirements (WHAT)
+# Requirements (Authority Layer)
 
-> 이 폴더는 **"무엇을 만들 것인가?"**를 정의합니다.
-> 기능(Feature)과 비즈니스 규칙(Business Rule)을 분리하여 관리합니다.
+> **Template-Version**: 2.4
+>
+> 이 폴더는 **"무엇을 만들 것인가?"**의 **최종 결정**을 저장합니다.
+> 논의/조율 기록은 `discussions/`에 분리합니다.
+
+## Authority Model (v2.3)
+
+```
+문서 등급:
+├── features/        → DECISION (Authority) - 최종 결정만
+│                      + Constraints & Boundaries (Optional)
+├── business_rules/  → DECISION (Authority) - 최종 결정만
+└── discussions/     → DISCUSSION (Reference) - 조율 기록
+```
+
+### Smart Spec Integration (v2.3)
+- **Boundaries**: 프로젝트 전역 규칙은 `01_CONVENTIONS.md`의 Boundaries 섹션
+- **Constraints**: 기능별 추가 제약은 각 REQ의 `Constraints & Boundaries` 섹션 (Optional)
+
+### Why Separate?
+- **DECISION (features/, business_rules/)**: LLM이 반드시 읽어야 함
+- **DISCUSSION (discussions/)**: LLM이 기본적으로 안 읽음. 명시적 참조 시만.
+
+이렇게 분리하면:
+1. 최종 결정이 명확해짐
+2. LLM이 "무엇이 결정인지" 확률적 판단 불필요
+3. 필수 규칙 누락/과다 참조 방지
 
 ## Structure
 
 ```
 02_REQUIREMENTS/
-├── features/           # 개별 기능 명세
-│   └── REQ-XXX-*.md    # 기능별 문서
-└── business_rules/     # 비즈니스 로직/공식
-    └── RULE-XXX-*.md   # 규칙별 문서
+├── features/           # REQ-* (DECISION only)
+│   └── REQ-AUTH-001.md
+├── business_rules/     # RULE-* (DECISION only)
+│   └── RULE-DATA-001.md
+└── discussions/        # DISC-* (조율 기록)
+    └── DISC-AUTH-001.md
 ```
 
-## Why Separate?
-- **Features**: "뉴스를 크롤링한다", "DB에 저장한다" 같은 동작
-- **Business Rules**: "응답 속도는 1초 이내", "모든 시간은 UTC" 같은 제약
+## Naming Convention (STRICT)
 
-AI가 기능 구현에 집중하다가 규칙을 놓치지 않도록 분리합니다.
+| Type | Pattern | Example | Location |
+|------|---------|---------|----------|
+| Feature | `REQ-[DOMAIN]-[NNN].md` | `REQ-AUTH-001.md` | features/ |
+| Rule | `RULE-[DOMAIN]-[NNN].md` | `RULE-DATA-001.md` | business_rules/ |
+| Discussion | `DISC-[DOMAIN]-[NNN].md` | `DISC-AUTH-001.md` | discussions/ |
 
-## Naming Convention
-- Features: `REQ-[DOMAIN]-[NUMBER].md` (예: `REQ-AUTH-001.md`)
-- Rules: `RULE-[DOMAIN]-[NUMBER].md` (예: `RULE-DATA-001.md`)
+## Must-Read Field (Required in v2.2)
+
+모든 REQ/RULE 문서에는 `**Must-Read**` 필드가 필수입니다:
+
+```markdown
+> **Must-Read**: RULE-DATA-001, RULE-SEC-001, ADR-003
+```
+
+이 필드에 나열된 문서는 해당 REQ 구현 시 **반드시** 읽어야 합니다.
+
+- Must-Read allows only RULE/ADR IDs (CTX is P0 and not allowed here).
+- If you use markdown links, the link text must be the ID (e.g. `[RULE-ID-001](business_rules/RULE-ID-001.md)`).

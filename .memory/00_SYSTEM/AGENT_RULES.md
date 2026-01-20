@@ -1,11 +1,30 @@
-# MemoryAtlas Agent Rules (v2.2.1)
+# MemoryAtlas Agent Rules (v2.5.0) - Smart Spec Edition
 
 > **SYSTEM FILE**: Managed by `memory_manager.py`. DO NOT EDIT.
 > **For custom rules**: Use `01_PROJECT_CONTEXT/01_CONVENTIONS.md`.
 
 ---
 
-## 1. Authority Model
+## 1. Smart Spec Model
+
+```
+6 Core Sections in CONVENTIONS:
+  1. Commands: Test, Lint, Run 명령어
+  2. Project Structure: 디렉토리 구조
+  3. Code Style: 포맷팅, 네이밍 규칙
+  4. Testing Strategy: 테스트 요구사항
+  5. Git Workflow: 브랜치/커밋 규칙
+  6. Boundaries: Always / Ask First / Never 규칙
+
+Boundaries (STRICT):
+  ✅ Always: AI가 항상 수행해야 하는 행동
+  ⚠️ Ask First: 사람 승인 후 진행
+  🚫 Never: AI가 절대 수행하면 안 되는 행동
+```
+
+---
+
+## 2. Authority Model
 
 ```
 권위의 흐름 (Authority Flow):
@@ -20,10 +39,10 @@
 
 ---
 
-## 2. Reading Priority
+## 3. Reading Priority
 
 ### P0 (Always Read)
-1. `01_PROJECT_CONTEXT/01_CONVENTIONS.md`
+1. `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **특히 Boundaries 섹션**
 2. Target REQ's `**Must-Read**` field
 3. All referenced RULE-* documents
 
@@ -38,22 +57,47 @@
 
 ---
 
-## 3. Writing Rules
+## 4. Boundaries Compliance (STRICT)
+
+### ✅ Always (항상 수행)
+- RUN 문서 종료 전 **테스트 통과** 확인
+- 모든 퍼블릭 함수에 **Type Hint** 추가
+- 기존 코드 수정 시 **기존 테스트 통과** 확인
+- 새 기능 추가 시 **REQ 문서 참조** 확인
+
+### ⚠️ Ask First (사전 승인 필요)
+- `requirements.txt` 등 **의존성 추가/삭제**
+- `.memory/00_SYSTEM/` 내부 파일 수정
+- **DB 스키마 변경** (migration 등)
+- **API 엔드포인트 삭제/변경**
+- 설정 파일 구조 변경
+
+### 🚫 Never (절대 금지)
+- **Secret 커밋 금지**: API Key, Password, Token 등
+- **하드코딩 금지**: 프로덕션 데이터, mock 데이터
+- **물리적 삭제 금지**: Soft Delete 사용
+- **Force Push 금지**: main/master 브랜치
+- **테스트 스킵 금지**: @skip으로 무시하지 않음
+
+---
+
+## 5. Writing Rules
 
 ### REQ/RULE Documents (Authority)
 - **결정만 적는다**: 논의/대안은 discussions/에
 - **짧게 유지**: 한 REQ = 하나의 명확한 결정
-- **Must-Read ??**: RULE/ADR ID?, ?? ???? ID
+- **Must-Read 필수**: RULE/ADR ID만, 링크 텍스트는 ID
+- **Constraints 선택적**: 기능별 추가 제약 시만 작성
 
 ### RUN Documents (Execution)
 - **1 RUN = 1 목적**: 여러 목적을 섞지 않음
 - **Input 명시**: 읽어야 할 문서 ID 목록
-- **Verification 명시**: 성공 조건
+- **Verification 명시**: 성공 조건 + Self-Check
 - **Output 기록**: 생성/수정 파일 목록
 
 ---
 
-## 4. Validation Requirements
+## 6. Validation Requirements
 
 ### Three-Way ID Consistency
 - `**ID**:` metadata (Authority)
@@ -66,22 +110,28 @@ All three must match.
 - Must-Read allows only RULE/ADR IDs (CTX is P0 and excluded)
 - Link text must be the ID if markdown links are used
 - All documents in `**Must-Read**` must exist
-- All must be read before implementation
 
 ---
 
-## 5. Workflow
+## 7. Workflow
 
 ### Starting a Task
-1. Read P0 documents
+1. Read P0 documents (**CONVENTIONS의 Boundaries 확인**)
 2. Read target REQ and its Must-Read
-3. Create RUN-* document in `04_TASK_LOGS/active/`
-4. Implement in small steps
+3. Check REQ's Constraints & Boundaries (있는 경우)
+4. Create RUN-* document in `04_TASK_LOGS/active/`
+5. Implement in small steps
+
+### Before Completing a Step (Self-Check)
+- [ ] **Test**: 테스트 통과?
+- [ ] **Boundary**: CONVENTIONS Boundaries 준수?
+- [ ] **Spec**: REQ와 일치?
 
 ### Completing a Step
-1. Mark RUN as Done
-2. Move to `04_TASK_LOGS/archive/YYYY-MM/`
-3. Create next step if needed
+1. Self-Check 완료 확인
+2. Mark RUN as Done
+3. Move to `04_TASK_LOGS/archive/YYYY-MM/`
+4. Create next step if needed
 
 ### When Discussion Needed
 1. Create DISC-* in `02_REQUIREMENTS/discussions/`

@@ -19,6 +19,18 @@ python memory_manager.py --status
 python memory_manager.py --bootstrap
 ```
 
+## 개발 및 빌드
+- 소스는 `src/` 아래에서 관리하고, 배포용 단일 파일은 `build.py`로 생성합니다.
+- 빌드 결과는 루트의 `memory_manager.py`로 출력됩니다.
+
+```bash
+# 필요 시 설치
+pip install stickytape
+
+# 단일 파일 빌드
+python build.py
+```
+
 ## 자주 쓰는 명령
 ```bash
 python memory_manager.py --check     # 구조 검사
