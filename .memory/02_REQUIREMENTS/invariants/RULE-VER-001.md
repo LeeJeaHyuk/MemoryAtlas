@@ -125,5 +125,5 @@ TEMPLATE_VERSION = "2.4"
 ## Related
 
 - **Source**: `src/core/config.py` (CURRENT_VERSION, TEMPLATE_VERSION)
-- **Build**: [REQ-BUILD-001](../features/REQ-BUILD-001.md)
-- **Migration**: [REQ-MGT-003](../features/REQ-MGT-003.md)
+- **Build**: [REQ-BUILD-001](../capabilities/REQ-BUILD-001.md)
+- **Migration**: [REQ-MGT-003](../capabilities/REQ-MGT-003.md)

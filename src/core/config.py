@@ -613,7 +613,7 @@ List related documents here.
 이 필드에 나열된 문서는 해당 REQ 구현 시 **반드시** 읽어야 합니다.
 
 - Must-Read allows only RULE/ADR IDs (CTX is P0 and not allowed here).
-- If you use markdown links, the link text must be the ID (e.g. `[RULE-ID-001](path)`).
+- If you use markdown links, the link text must be the ID (e.g. `[RULE-ID-001](invariants/RULE-ID-001.md)`).
 """,
 
     "02_REQUIREMENTS/capabilities/README.md": f"""# Capabilities (REQ-*)
