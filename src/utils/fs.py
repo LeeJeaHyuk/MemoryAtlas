@@ -2,7 +2,7 @@
 import os
 import shutil
 
-from core.config import CURRENT_VERSION, DIRS, DOC_TEMPLATES, SYSTEM_TEMPLATES
+from core.config import CURRENT_VERSION, DIRS, DOC_TEMPLATES, SYSTEM_TEMPLATES, UPDATABLE_READMES
 
 def write_file(path: str, content: str, dry_run: bool = False) -> None:
     """Write content to file, creating parent directories if needed."""
@@ -69,6 +69,23 @@ def update_system_templates(root: str, dry_run: bool = False) -> None:
             os.makedirs(dir_name, exist_ok=True)
         write_file(path, content)
         print(f"  * Updated system file: {rel_path}")
+
+
+def update_readme_files(root: str, dry_run: bool = False) -> None:
+    """Update README files that are system-managed."""
+    for rel_path in UPDATABLE_READMES:
+        if rel_path not in DOC_TEMPLATES:
+            continue
+        path = os.path.join(root, rel_path)
+        content = DOC_TEMPLATES[rel_path]
+        if dry_run:
+            print(f"  - Would update readme: {rel_path}")
+            continue
+        dir_name = os.path.dirname(path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        write_file(path, content)
+        print(f"  * Updated readme: {rel_path}")
 
 def update_tooling(root: str, dry_run: bool = False) -> None:
     """Copy current script to system scripts directory."""

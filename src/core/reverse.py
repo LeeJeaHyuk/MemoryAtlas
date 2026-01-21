@@ -94,13 +94,13 @@ def generate_reverse_prompt(root: str, focus_path: str) -> None:
     
     # 1. Scan Context
     # root is ".memory" folder
-    rules_dir = os.path.join(root, "02_REQUIREMENTS", "business_rules")
-    reqs_dir = os.path.join(root, "02_REQUIREMENTS", "features")
+    rules_dir = os.path.join(root, "02_REQUIREMENTS", "invariants")
+    reqs_dir = os.path.join(root, "02_REQUIREMENTS", "capabilities")
     
     existing_rules = get_file_list(rules_dir)
     existing_reqs = get_file_list(reqs_dir)
     
-    print(f"   Context: Found {len(existing_rules)} rules and {len(existing_reqs)} features.")
+    print(f"   Context: Found {len(existing_rules)} invariants and {len(existing_reqs)} capabilities.")
     
     # 2. Read Target Code
     # Assuming root is relative ".memory", project root is current dir or parent of absolute root

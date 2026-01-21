@@ -1,41 +1,39 @@
 # Requirements (Authority Layer)
 
-> **Template-Version**: 2.4
+> **Template-Version**: 3.0
 >
 > 이 폴더는 **"무엇을 만들 것인가?"**의 **최종 결정**을 저장합니다.
 > 논의/조율 기록은 `discussions/`에 분리합니다.
 
-## Authority Model (v2.3)
+## Capabilities & Invariants Model (v3.0)
 
 ```
 문서 등급:
-├── features/        → DECISION (Authority) - 최종 결정만
-│                      + Constraints & Boundaries (Optional)
-├── business_rules/  → DECISION (Authority) - 최종 결정만
-└── discussions/     → DISCUSSION (Reference) - 조율 기록
+├── capabilities/    → REQ-* (기능/행동) "시스템은 ~해야 한다"
+├── invariants/      → RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
+└── discussions/     → DISC-* (조율 기록, LLM 기본 무시)
 ```
 
-### Smart Spec Integration (v2.3)
-- **Boundaries**: 프로젝트 전역 규칙은 `01_CONVENTIONS.md`의 Boundaries 섹션
-- **Constraints**: 기능별 추가 제약은 각 REQ의 `Constraints & Boundaries` 섹션 (Optional)
+## REQ vs RULE 판정 기준
 
-### Why Separate?
-- **DECISION (features/, business_rules/)**: LLM이 반드시 읽어야 함
-- **DISCUSSION (discussions/)**: LLM이 기본적으로 안 읽음. 명시적 참조 시만.
+### REQ (capabilities/에만 존재)
+- **문장 형태**: "시스템은 ~~해야 한다" (동작 중심)
+- **필수 섹션**: Input, Output, Acceptance Criteria
+- **규칙 작성 금지**: 형식/제약/금지는 Must-Read로 RULE 참조
 
-이렇게 분리하면:
-1. 최종 결정이 명확해짐
-2. LLM이 "무엇이 결정인지" 확률적 판단 불필요
-3. 필수 규칙 누락/과다 참조 방지
+### RULE (invariants/에만 존재)
+- **문장 형태**: "항상 ~~이다 / ~~는 금지" (불변 중심)
+- **필수 섹션**: Scope, Violation 판정 기준, Examples
+- **테스트 가능**: 단독으로 참/거짓 판정 가능해야 함
 
 ## Structure
 
 ```
 02_REQUIREMENTS/
-├── features/           # REQ-* (DECISION only)
+├── capabilities/       # REQ-* (기능/행동)
 │   └── REQ-AUTH-001.md
-├── business_rules/     # RULE-* (DECISION only)
-│   └── RULE-DATA-001.md
+├── invariants/         # RULE-* (불변 규칙)
+│   └── RULE-ID-001.md
 └── discussions/        # DISC-* (조율 기록)
     └── DISC-AUTH-001.md
 ```
@@ -44,19 +42,19 @@
 
 | Type | Pattern | Example | Location |
 |------|---------|---------|----------|
-| Feature | `REQ-[DOMAIN]-[NNN].md` | `REQ-AUTH-001.md` | features/ |
-| Rule | `RULE-[DOMAIN]-[NNN].md` | `RULE-DATA-001.md` | business_rules/ |
+| Capability | `REQ-[DOMAIN]-[NNN].md` | `REQ-AUTH-001.md` | capabilities/ |
+| Invariant | `RULE-[DOMAIN]-[NNN].md` | `RULE-ID-001.md` | invariants/ |
 | Discussion | `DISC-[DOMAIN]-[NNN].md` | `DISC-AUTH-001.md` | discussions/ |
 
-## Must-Read Field (Required in v2.2)
+## Must-Read Field (Required)
 
 모든 REQ/RULE 문서에는 `**Must-Read**` 필드가 필수입니다:
 
 ```markdown
-> **Must-Read**: RULE-DATA-001, RULE-SEC-001, ADR-003
+> **Must-Read**: RULE-ID-001, RULE-META-001, ADR-003
 ```
 
 이 필드에 나열된 문서는 해당 REQ 구현 시 **반드시** 읽어야 합니다.
 
 - Must-Read allows only RULE/ADR IDs (CTX is P0 and not allowed here).
-- If you use markdown links, the link text must be the ID (e.g. `[RULE-ID-001](business_rules/RULE-ID-001.md)`).
+- If you use markdown links, the link text must be the ID (e.g. `[RULE-ID-001](path)`).

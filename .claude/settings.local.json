@@ -13,7 +13,14 @@
       "Bash(python memory_manager.py:*)",
       "Bash(py -3:*)",
       "mcp__serena__think_about_task_adherence",
-      "mcp__serena__insert_before_symbol"
+      "mcp__serena__insert_before_symbol",
+      "mcp__serena__list_dir",
+      "mcp__serena__create_text_file",
+      "Bash(python -m memory:*)",
+      "Bash(python src/cli.py:*)",
+      "Bash(python:*)",
+      "Bash(where:*)",
+      "Bash(C:UsersHonganaconda3python.exe -c \"print\\(''hello''\\)\")"
     ]
   }
 }

@@ -15,5 +15,5 @@
 
 ## Version Info
 
-- **Manager Version**: 2.4.0
-- **Template Version**: 2.4
+- **Manager Version**: 3.0.0
+- **Template Version**: 3.0

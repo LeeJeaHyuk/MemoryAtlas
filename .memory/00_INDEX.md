@@ -1,24 +1,20 @@
 # Project Memory Index
 
 > Entry point for Memory-Driven Development in this repo.
-> **Version**: 2.4.0 (Smart Spec Edition)
-> **Template Version**: 2.4
+> **Version**: 3.0.0 (Smart Spec Edition)
+> **Template Version**: 3.0
 
-## Smart Spec Model (v2.3)
+## Capabilities & Invariants Model (v3.0)
 
 ```
-6 Core Sections in CONVENTIONS:
-  1. Commands      - Test, Lint, Run 명령어
-  2. Structure     - 프로젝트 디렉토리 구조
-  3. Code Style    - 포맷팅, 네이밍 규칙
-  4. Testing       - 테스트 전략
-  5. Git Workflow  - 브랜치/커밋 규칙
-  6. Boundaries    - Always / Ask First / Never 규칙 ⭐
+02_REQUIREMENTS/ 구조:
+  capabilities/  - REQ-* (기능/행동) "시스템은 ~해야 한다"
+  invariants/    - RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
+  discussions/   - DISC-* (조율 기록) LLM 기본 무시
 
-Boundaries (STRICT):
-  ✅ Always    - AI가 항상 수행해야 하는 행동
-  ⚠️ Ask First - 사람 승인 후 진행
-  🚫 Never     - AI가 절대 수행하면 안 되는 행동
+REQ vs RULE 판정:
+  REQ  = Input/Output/Acceptance Criteria 필수 (동작 중심)
+  RULE = Scope/Violation/Examples 필수 (불변 중심)
 ```
 
 ## Quick Navigation
@@ -26,9 +22,9 @@ Boundaries (STRICT):
 | Folder | Purpose | Authority Level |
 |--------|---------|-----------------|
 | `01_PROJECT_CONTEXT/` | 프로젝트 헌법 + **Boundaries** | Constitution |
-| `02_REQUIREMENTS/features/` | 기능 **결정** (DECISION) | Authority |
-| `02_REQUIREMENTS/business_rules/` | 규칙 **결정** (DECISION) | Authority |
-| `02_REQUIREMENTS/discussions/` | 조율 기록 (DISCUSSION) | Reference |
+| `02_REQUIREMENTS/capabilities/` | 기능 **결정** (REQ-*) | Authority |
+| `02_REQUIREMENTS/invariants/` | 불변 규칙 **결정** (RULE-*) | Authority |
+| `02_REQUIREMENTS/discussions/` | 조율 기록 (DISC-*) | Reference |
 | `03_TECH_SPECS/` | 기술 설계 & ADR | Implementation |
 | `04_TASK_LOGS/` | 실행 기록 (RUN-*) | Execution |
 | `98_KNOWLEDGE/` | 배운 점 | Asset |
@@ -38,7 +34,7 @@ Boundaries (STRICT):
 ### Reading Priority (P0 = Must Read)
 1. **P0**: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **특히 Boundaries 섹션** ⭐
 2. **P0**: Target REQ's `**Must-Read**` field
-3. **P1**: `02_REQUIREMENTS/business_rules/` (all active)
+3. **P1**: `02_REQUIREMENTS/invariants/` (all active)
 4. **P2**: `98_KNOWLEDGE/` (if complex feature)
 
 ### Execution Checklist
@@ -61,9 +57,9 @@ Boundaries (STRICT):
 - [01_CONVENTIONS.md](01_PROJECT_CONTEXT/01_CONVENTIONS.md) - 코딩 규칙 + **Boundaries** ⭐
 
 ### 02_REQUIREMENTS (요구사항)
-- [features/](02_REQUIREMENTS/features/) - 기능 **결정** (Authority)
-- [business_rules/](02_REQUIREMENTS/business_rules/) - 규칙 **결정** (Authority)
-- [discussions/](02_REQUIREMENTS/discussions/) - 조율 기록 (Reference)
+- [capabilities/](02_REQUIREMENTS/capabilities/) - 기능 **결정** (REQ-*)
+- [invariants/](02_REQUIREMENTS/invariants/) - 불변 규칙 **결정** (RULE-*)
+- [discussions/](02_REQUIREMENTS/discussions/) - 조율 기록 (DISC-*)
 
 ### 03_TECH_SPECS (기술 설계)
 - [architecture/](03_TECH_SPECS/architecture/) - 구조도, DB 스키마

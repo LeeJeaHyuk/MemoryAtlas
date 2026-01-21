@@ -32,14 +32,14 @@ def status_report(root: str, show_recent: int = 5) -> int:
     rule_count = 0
     disc_count = 0
 
-    for scan_dir in ["02_REQUIREMENTS/features"]:
+    for scan_dir in ["02_REQUIREMENTS/capabilities"]:
         req_path = os.path.join(root, scan_dir)
         if os.path.isdir(req_path):
             for f in os.listdir(req_path):
                 if f.endswith(".md") and f != "README.md":
                     req_count += 1
 
-    for scan_dir in ["02_REQUIREMENTS/business_rules"]:
+    for scan_dir in ["02_REQUIREMENTS/invariants"]:
         rule_path = os.path.join(root, scan_dir)
         if os.path.isdir(rule_path):
             for f in os.listdir(rule_path):
@@ -70,8 +70,8 @@ def status_report(root: str, show_recent: int = 5) -> int:
 
     print(f"\n  [Archived Tasks]: {archive_count}")
     print(f"\n  [Authority Documents]:")
-    print(f"    - Feature REQs: {req_count}")
-    print(f"    - Business RULEs: {rule_count}")
+    print(f"    - Capabilities (REQ): {req_count}")
+    print(f"    - Invariants (RULE): {rule_count}")
     print(f"    - Discussions: {disc_count}")
     print(f"\n  [Knowledge Articles]: {knowledge_count}")
 

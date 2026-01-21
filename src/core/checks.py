@@ -21,10 +21,10 @@ def iter_md_files(root: str, dirs: list[str]) -> list[str]:
 
 def get_doc_type(path: str) -> str:
     """Determine document type from path."""
-    if "features" in path:
-        return "features"
-    if "business_rules" in path:
-        return "business_rules"
+    if "capabilities" in path:
+        return "capabilities"
+    if "invariants" in path:
+        return "invariants"
     if "decisions" in path:
         return "decisions"
     if "discussions" in path:
@@ -252,7 +252,7 @@ def check_requirements(root: str) -> int:
             all_ids.add(meta_id)
 
     # Also collect RULE IDs
-    for path in iter_md_files(root, ["02_REQUIREMENTS/business_rules"]):
+    for path in iter_md_files(root, ["02_REQUIREMENTS/invariants"]):
         text = read_text(path)
         meta_id = extract_meta_id(text)
         if meta_id:

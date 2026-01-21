@@ -1,6 +1,6 @@
 # Technical Specifications (HOW)
 
-> **Template-Version**: 2.4
+> **Template-Version**: 3.0
 >
 > **"어떻게 만들 것인가?"**를 정의합니다.
 

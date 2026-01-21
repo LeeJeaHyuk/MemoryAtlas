@@ -1,6 +1,6 @@
 # Active Tasks (Execution)
 
-> **Template-Version**: 2.4
+> **Template-Version**: 3.0
 
 ## RUN Document Template
 
@@ -12,7 +12,7 @@
 > **Started**: YYYY-MM-DD
 > **Input**: REQ-XXX-001, RULE-YYY-001, 01_CONVENTIONS.md
 > **Verification**: (성공 조건 - 한 줄 요약)
-> **Template-Version**: 2.4
+> **Template-Version**: 3.0
 
 ---
 

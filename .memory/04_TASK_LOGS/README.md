@@ -1,6 +1,6 @@
 # Task Logs (Execution Layer)
 
-> **Template-Version**: 2.4
+> **Template-Version**: 3.0
 >
 > 실행 기록을 관리합니다.
 

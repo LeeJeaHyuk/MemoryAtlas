@@ -1,12 +1,12 @@
 
 import re
 
-CURRENT_VERSION = "2.5.0"
+CURRENT_VERSION = "3.0.0"
 ROOT_DIR = ".memory"
-TEMPLATE_VERSION = "2.4"  # Template schema version (Context Bootstrapping)
+TEMPLATE_VERSION = "3.0"  # Template schema version (Context Bootstrapping)
 
 # ============================================================================
-# STRUCTURE (v2.3) - Smart Spec Edition
+# STRUCTURE (v3.0) - Capabilities & Invariants Edition
 # ============================================================================
 # .memory/
 # ├── 00_SYSTEM/                  # 시스템 관리 (시스템만 수정)
@@ -14,8 +14,8 @@ TEMPLATE_VERSION = "2.4"  # Template schema version (Context Bootstrapping)
 # │   ├── 00_GOALS.md
 # │   └── 01_CONVENTIONS.md
 # ├── 02_REQUIREMENTS/            # [WHAT: Authority Layer]
-# │   ├── features/               # REQ-* (DECISION only, 최종 결정)
-# │   ├── business_rules/         # RULE-* (DECISION only)
+# │   ├── capabilities/           # REQ-* (기능/행동 - "시스템은 ~해야 한다")
+# │   ├── invariants/             # RULE-* (불변 규칙 - "항상 ~이다")
 # │   └── discussions/            # DISC-* (조율 기록, LLM 기본 무시)
 # ├── 03_TECH_SPECS/              # [HOW: 개발자의 영역]
 # │   ├── architecture/
@@ -31,9 +31,9 @@ TEMPLATE_VERSION = "2.4"  # Template schema version (Context Bootstrapping)
 DIRS = [
     "00_SYSTEM/scripts",
     "01_PROJECT_CONTEXT",
-    "02_REQUIREMENTS/features",
-    "02_REQUIREMENTS/business_rules",
-    "02_REQUIREMENTS/discussions",  # NEW in v2.2
+    "02_REQUIREMENTS/capabilities",
+    "02_REQUIREMENTS/invariants",
+    "02_REQUIREMENTS/discussions",
     "03_TECH_SPECS/architecture",
     "03_TECH_SPECS/api_specs",
     "03_TECH_SPECS/decisions",
@@ -41,19 +41,18 @@ DIRS = [
     "04_TASK_LOGS/archive",
     "98_KNOWLEDGE/troubleshooting",
     "99_ARCHIVE",
-    "99_ARCHIVE/discussions",  # For old discussion logs
+    "99_ARCHIVE/discussions",
 ]
 
 # ============================================================================
 # LINT / CHECK CONFIGURATION
 # ============================================================================
-# P1: Expanded to include discussions and RUN for format enforcement
 LINT_DIRS = [
     "01_PROJECT_CONTEXT",
-    "02_REQUIREMENTS/features",
-    "02_REQUIREMENTS/business_rules",
-    "02_REQUIREMENTS/discussions",  # v2.2.1: Even if "default skip", enforce format
-    "04_TASK_LOGS/active",  # v2.2.1: RUN documents need format validation
+    "02_REQUIREMENTS/capabilities",
+    "02_REQUIREMENTS/invariants",
+    "02_REQUIREMENTS/discussions",
+    "04_TASK_LOGS/active",
 ]
 
 LINK_SCAN_DIRS = [
@@ -64,21 +63,21 @@ LINK_SCAN_DIRS = [
 ]
 
 REQ_SCAN_DIRS = [
-    "02_REQUIREMENTS/features",
-    "02_REQUIREMENTS/business_rules",
+    "02_REQUIREMENTS/capabilities",
+    "02_REQUIREMENTS/invariants",
 ]
 
 RUN_SCAN_DIRS = [
     "04_TASK_LOGS/active",
 ]
 
-LINT_SKIP_FILES = {"README.md", "00_INDEX.md"}
+LINT_SKIP_FILES = {"README.md", "00_INDEX.md", "_index.md"}
 
 # Document type-specific header requirements
 HEADER_FIELDS_BY_TYPE = {
     "default": ["**ID**", "**Last Updated**"],
-    "features": ["**ID**", "**Domain**", "**Status**", "**Last Updated**", "**Must-Read**"],
-    "business_rules": ["**ID**", "**Domain**", "**Priority**", "**Last Updated**", "**Must-Read**"],
+    "capabilities": ["**ID**", "**Domain**", "**Status**", "**Last Updated**", "**Must-Read**"],
+    "invariants": ["**ID**", "**Domain**", "**Priority**", "**Last Updated**", "**Must-Read**"],
     "decisions": ["**Status**", "**Date**"],
     "discussions": ["**ID**", "**Related-REQ**", "**Date**"],
     "runs": ["**ID**", "**Input**", "**Verification**"],
@@ -132,21 +131,17 @@ DOC_TEMPLATES = {
 > **Version**: {CURRENT_VERSION} (Smart Spec Edition)
 > **Template Version**: {TEMPLATE_VERSION}
 
-## Smart Spec Model (v2.3)
+## Capabilities & Invariants Model (v3.0)
 
 ```
-6 Core Sections in CONVENTIONS:
-  1. Commands      - Test, Lint, Run 명령어
-  2. Structure     - 프로젝트 디렉토리 구조
-  3. Code Style    - 포맷팅, 네이밍 규칙
-  4. Testing       - 테스트 전략
-  5. Git Workflow  - 브랜치/커밋 규칙
-  6. Boundaries    - Always / Ask First / Never 규칙 ⭐
+02_REQUIREMENTS/ 구조:
+  capabilities/  - REQ-* (기능/행동) "시스템은 ~해야 한다"
+  invariants/    - RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
+  discussions/   - DISC-* (조율 기록) LLM 기본 무시
 
-Boundaries (STRICT):
-  ✅ Always    - AI가 항상 수행해야 하는 행동
-  ⚠️ Ask First - 사람 승인 후 진행
-  🚫 Never     - AI가 절대 수행하면 안 되는 행동
+REQ vs RULE 판정:
+  REQ  = Input/Output/Acceptance Criteria 필수 (동작 중심)
+  RULE = Scope/Violation/Examples 필수 (불변 중심)
 ```
 
 ## Quick Navigation
@@ -154,9 +149,9 @@ Boundaries (STRICT):
 | Folder | Purpose | Authority Level |
 |--------|---------|-----------------|
 | `01_PROJECT_CONTEXT/` | 프로젝트 헌법 + **Boundaries** | Constitution |
-| `02_REQUIREMENTS/features/` | 기능 **결정** (DECISION) | Authority |
-| `02_REQUIREMENTS/business_rules/` | 규칙 **결정** (DECISION) | Authority |
-| `02_REQUIREMENTS/discussions/` | 조율 기록 (DISCUSSION) | Reference |
+| `02_REQUIREMENTS/capabilities/` | 기능 **결정** (REQ-*) | Authority |
+| `02_REQUIREMENTS/invariants/` | 불변 규칙 **결정** (RULE-*) | Authority |
+| `02_REQUIREMENTS/discussions/` | 조율 기록 (DISC-*) | Reference |
 | `03_TECH_SPECS/` | 기술 설계 & ADR | Implementation |
 | `04_TASK_LOGS/` | 실행 기록 (RUN-*) | Execution |
 | `98_KNOWLEDGE/` | 배운 점 | Asset |
@@ -166,7 +161,7 @@ Boundaries (STRICT):
 ### Reading Priority (P0 = Must Read)
 1. **P0**: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **특히 Boundaries 섹션** ⭐
 2. **P0**: Target REQ's `**Must-Read**` field
-3. **P1**: `02_REQUIREMENTS/business_rules/` (all active)
+3. **P1**: `02_REQUIREMENTS/invariants/` (all active)
 4. **P2**: `98_KNOWLEDGE/` (if complex feature)
 
 ### Execution Checklist
@@ -189,9 +184,9 @@ Boundaries (STRICT):
 - [01_CONVENTIONS.md](01_PROJECT_CONTEXT/01_CONVENTIONS.md) - 코딩 규칙 + **Boundaries** ⭐
 
 ### 02_REQUIREMENTS (요구사항)
-- [features/](02_REQUIREMENTS/features/) - 기능 **결정** (Authority)
-- [business_rules/](02_REQUIREMENTS/business_rules/) - 규칙 **결정** (Authority)
-- [discussions/](02_REQUIREMENTS/discussions/) - 조율 기록 (Reference)
+- [capabilities/](02_REQUIREMENTS/capabilities/) - 기능 **결정** (REQ-*)
+- [invariants/](02_REQUIREMENTS/invariants/) - 불변 규칙 **결정** (RULE-*)
+- [discussions/](02_REQUIREMENTS/discussions/) - 조율 기록 (DISC-*)
 
 ### 03_TECH_SPECS (기술 설계)
 - [architecture/](03_TECH_SPECS/architecture/) - 구조도, DB 스키마
@@ -399,7 +394,7 @@ project_root/
 ### Reading Priority (P0 = Must Read)
 1. **P0**: 이 파일 (`01_CONVENTIONS.md`)
 2. **P0**: Target REQ의 `**Must-Read**` 필드
-3. **P1**: `02_REQUIREMENTS/business_rules/` (전체)
+3. **P1**: `02_REQUIREMENTS/invariants/` (전체)
 4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
 
 ### Execution Checklist
@@ -566,37 +561,35 @@ List related documents here.
 > 이 폴더는 **"무엇을 만들 것인가?"**의 **최종 결정**을 저장합니다.
 > 논의/조율 기록은 `discussions/`에 분리합니다.
 
-## Authority Model (v2.3)
+## Capabilities & Invariants Model (v3.0)
 
 ```
 문서 등급:
-├── features/        → DECISION (Authority) - 최종 결정만
-│                      + Constraints & Boundaries (Optional)
-├── business_rules/  → DECISION (Authority) - 최종 결정만
-└── discussions/     → DISCUSSION (Reference) - 조율 기록
+├── capabilities/    → REQ-* (기능/행동) "시스템은 ~해야 한다"
+├── invariants/      → RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
+└── discussions/     → DISC-* (조율 기록, LLM 기본 무시)
 ```
 
-### Smart Spec Integration (v2.3)
-- **Boundaries**: 프로젝트 전역 규칙은 `01_CONVENTIONS.md`의 Boundaries 섹션
-- **Constraints**: 기능별 추가 제약은 각 REQ의 `Constraints & Boundaries` 섹션 (Optional)
+## REQ vs RULE 판정 기준
 
-### Why Separate?
-- **DECISION (features/, business_rules/)**: LLM이 반드시 읽어야 함
-- **DISCUSSION (discussions/)**: LLM이 기본적으로 안 읽음. 명시적 참조 시만.
+### REQ (capabilities/에만 존재)
+- **문장 형태**: "시스템은 ~~해야 한다" (동작 중심)
+- **필수 섹션**: Input, Output, Acceptance Criteria
+- **규칙 작성 금지**: 형식/제약/금지는 Must-Read로 RULE 참조
 
-이렇게 분리하면:
-1. 최종 결정이 명확해짐
-2. LLM이 "무엇이 결정인지" 확률적 판단 불필요
-3. 필수 규칙 누락/과다 참조 방지
+### RULE (invariants/에만 존재)
+- **문장 형태**: "항상 ~~이다 / ~~는 금지" (불변 중심)
+- **필수 섹션**: Scope, Violation 판정 기준, Examples
+- **테스트 가능**: 단독으로 참/거짓 판정 가능해야 함
 
 ## Structure
 
 ```
 02_REQUIREMENTS/
-├── features/           # REQ-* (DECISION only)
+├── capabilities/       # REQ-* (기능/행동)
 │   └── REQ-AUTH-001.md
-├── business_rules/     # RULE-* (DECISION only)
-│   └── RULE-DATA-001.md
+├── invariants/         # RULE-* (불변 규칙)
+│   └── RULE-ID-001.md
 └── discussions/        # DISC-* (조율 기록)
     └── DISC-AUTH-001.md
 ```
@@ -605,35 +598,41 @@ List related documents here.
 
 | Type | Pattern | Example | Location |
 |------|---------|---------|----------|
-| Feature | `REQ-[DOMAIN]-[NNN].md` | `REQ-AUTH-001.md` | features/ |
-| Rule | `RULE-[DOMAIN]-[NNN].md` | `RULE-DATA-001.md` | business_rules/ |
+| Capability | `REQ-[DOMAIN]-[NNN].md` | `REQ-AUTH-001.md` | capabilities/ |
+| Invariant | `RULE-[DOMAIN]-[NNN].md` | `RULE-ID-001.md` | invariants/ |
 | Discussion | `DISC-[DOMAIN]-[NNN].md` | `DISC-AUTH-001.md` | discussions/ |
 
-## Must-Read Field (Required in v2.2)
+## Must-Read Field (Required)
 
 모든 REQ/RULE 문서에는 `**Must-Read**` 필드가 필수입니다:
 
 ```markdown
-> **Must-Read**: RULE-DATA-001, RULE-SEC-001, ADR-003
+> **Must-Read**: RULE-ID-001, RULE-META-001, ADR-003
 ```
 
 이 필드에 나열된 문서는 해당 REQ 구현 시 **반드시** 읽어야 합니다.
 
 - Must-Read allows only RULE/ADR IDs (CTX is P0 and not allowed here).
-- If you use markdown links, the link text must be the ID (e.g. `[RULE-DATA-001](path)`).
+- If you use markdown links, the link text must be the ID (e.g. `[RULE-ID-001](path)`).
 """,
 
-    "02_REQUIREMENTS/features/README.md": f"""# Feature Requirements (DECISION)
+    "02_REQUIREMENTS/capabilities/README.md": f"""# Capabilities (REQ-*)
 
 > **Template-Version**: {TEMPLATE_VERSION}
 >
-> 이곳에는 **최종 결정**만 저장합니다.
+> **"시스템은 ~해야 한다"** 형태의 기능/행동을 정의합니다.
 > 논의/대안 검토는 `../discussions/`에 작성하세요.
+
+## REQ 판정 기준
+
+- ✅ "시스템은 ~~해야 한다"로 시작 가능 (동작 중심)
+- ✅ Input / Output / Acceptance Criteria 필수
+- ❌ 규칙/형식/제약은 본문에 쓰지 말고 Must-Read로 RULE 참조
 
 ## Template
 
 ```markdown
-# [REQ-XXX-001] Feature Name
+# [REQ-XXX-001] Capability Name
 
 > **ID**: REQ-XXX-001
 > **Domain**: (도메인)
@@ -661,16 +660,13 @@ List related documents here.
 - [ ] Criterion 1
 - [ ] Criterion 2
 
-## Constraints & Boundaries (Optional)
+## In/Out of Scope (Optional)
 
-> 이 기능 구현 시 적용되는 특별한 제약.
-> 프로젝트 전역 Boundaries(`01_CONVENTIONS.md`)를 넘어서는 경우만 작성.
+### In Scope
+- (이 기능에 포함되는 것)
 
-### ⚠️ Ask First
-- (이 기능에서 사람 승인이 필요한 것)
-
-### 🚫 Never
-- (이 기능에서 절대 금지)
+### Out of Scope
+- (이 기능에 포함되지 않는 것)
 
 ## Related
 
@@ -680,23 +676,29 @@ List related documents here.
 
 ## Rules
 
-1. **결정만 적는다**: 논의/대안은 discussions/에
-2. **짧게 유지**: 한 REQ = 하나의 명확한 결정
+1. **동작만 적는다**: 규칙/제약은 invariants/에
+2. **짧게 유지**: 한 REQ = 하나의 명확한 기능
 3. **Must-Read 필수**: RULE/ADR ID만, 링크 텍스트는 ID
 4. **ID 일치**: 파일명 = **ID**: = 헤더 [ID]
-5. **Boundaries 선택적**: 프로젝트 전역 규칙 외 추가 제약 시만 작성
+5. **AC 필수**: Acceptance Criteria 없으면 REQ가 아님
 """,
 
-    "02_REQUIREMENTS/business_rules/README.md": f"""# Business Rules (DECISION)
+    "02_REQUIREMENTS/invariants/README.md": f"""# Invariants (RULE-*)
 
 > **Template-Version**: {TEMPLATE_VERSION}
 >
-> 비즈니스 로직, 공식, 변하지 않는 규칙의 **최종 결정**을 저장합니다.
+> **"항상 ~이다 / ~는 금지"** 형태의 불변 규칙을 정의합니다.
+
+## RULE 판정 기준
+
+- ✅ "항상 ~~이다 / ~~는 금지 / ~~를 만족해야 한다"로 시작 가능 (불변 중심)
+- ✅ Scope / Violation 판정 기준 / Examples 필수
+- ✅ 단독으로 참/거짓 판정 가능 (테스트 가능한 문장)
 
 ## Template
 
 ```markdown
-# [RULE-XXX-001] Rule Name
+# [RULE-XXX-001] Invariant Name
 
 > **ID**: RULE-XXX-001
 > **Domain**: (도메인)
@@ -709,11 +711,15 @@ List related documents here.
 
 ## Rule Statement (최종 결정)
 
-(규칙을 명확하게 한 문장으로)
+(규칙을 명확하게 한 문장으로. "항상 ~이다" 또는 "~는 금지")
 
-## Rationale
+## Scope
 
-(왜 이 규칙이 필요한가? 간단히)
+(이 규칙이 적용되는 범위)
+
+## Violation (위반 판정 기준)
+
+(어떤 경우 이 규칙을 위반한 것인가?)
 
 ## Examples
 
@@ -730,10 +736,18 @@ List related documents here.
 
 ## Common Domains
 
+- **ID**: ID 명명 규칙
+- **META**: 메타데이터 규칙
 - **DATA**: 데이터 형식, 저장 규칙
-- **PERF**: 성능 제약
 - **SEC**: 보안 규칙
-- **UX**: 사용자 경험 규칙
+- **VER**: 버전 관리 규칙
+
+## Rules
+
+1. **불변만 적는다**: 기능/동작은 capabilities/에
+2. **테스트 가능**: 단독으로 참/거짓 판정 가능해야 함
+3. **Violation 필수**: 위반 기준 없으면 RULE이 아님
+4. **ID 일치**: 파일명 = **ID**: = 헤더 [ID]
 """,
 
     "02_REQUIREMENTS/discussions/README.md": f"""# Discussions (Reference Layer)
@@ -793,6 +807,62 @@ List related documents here.
 1. **LLM 기본 무시**: 명시적으로 참조하지 않으면 읽지 않음
 2. **REQ와 연결**: `Related-REQ` 필드로 관련 결정 문서 연결
 3. **Archive 정책**: 오래된 논의는 `99_ARCHIVE/discussions/`로 이동
+""",
+
+    # =========================================================================
+    # 02_REQUIREMENTS/_index.md (Human Entry Point)
+    # =========================================================================
+    "02_REQUIREMENTS/_index.md": f"""# 02_REQUIREMENTS 읽기 가이드
+
+> **Template-Version**: {TEMPLATE_VERSION}
+>
+> 이 문서는 사람과 LLM이 요구사항 문서를 **어디서부터 읽어야 하는지** 안내합니다.
+
+## 📖 읽는 순서
+
+### 1단계: 전역 규칙 (필수)
+
+아래 규칙들은 모든 REQ 구현 전에 반드시 읽어야 합니다:
+
+| 순서 | 문서 | 설명 |
+|------|------|------|
+| 1 | [RULE-ID-001](invariants/RULE-ID-001.md) | ID 명명 규칙 |
+| 2 | [RULE-META-001](invariants/RULE-META-001.md) | 메타데이터 필드 규칙 |
+| 3 | [RULE-MUST-001](invariants/RULE-MUST-001.md) | Must-Read 참조 규칙 |
+
+### 2단계: 대상 기능 (선택)
+
+구현할 기능의 REQ 문서를 읽고, 해당 문서의 `**Must-Read**` 필드에 명시된 문서들을 따라 읽습니다.
+
+## 🏷️ 폴더 구조
+
+| 폴더 | 질문 | 내용 |
+|------|------|------|
+| `capabilities/` | "무엇을 만드는가?" | REQ-* (기능/행동) |
+| `invariants/` | "무엇이 항상 참인가?" | RULE-* (불변 규칙) |
+| `discussions/` | "어떻게 결정했는가?" | DISC-* (조율 기록) |
+
+## REQ vs RULE 빠른 판정
+
+```
+REQ (capabilities/)
+  → "시스템은 ~해야 한다" (동작 중심)
+  → Input/Output/AC 필수
+
+RULE (invariants/)
+  → "항상 ~이다 / ~는 금지" (불변 중심)
+  → Scope/Violation/Examples 필수
+```
+
+## 🔗 Quick Links
+
+- 구조 설명: [README.md](README.md)
+- 프로젝트 규칙: [01_CONVENTIONS.md](../01_PROJECT_CONTEXT/01_CONVENTIONS.md)
+
+## ⚠️ 주의사항
+
+- `discussions/`는 **기본적으로 읽지 않습니다** (명시적 참조 시만)
+- 각 REQ의 `**Must-Read**` 필드가 **읽기 우선순위의 권위**입니다
 """,
 
     # =========================================================================
@@ -1359,7 +1429,7 @@ project_root/
 ### Reading Priority (P0 = Must Read)
 1. **P0**: 이 파일 (`01_CONVENTIONS.md`)
 2. **P0**: Target REQ의 `**Must-Read**` 필드
-3. **P1**: `02_REQUIREMENTS/business_rules/` (전체)
+3. **P1**: `02_REQUIREMENTS/invariants/` (전체)
 4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
 
 ### Execution Checklist
@@ -1478,7 +1548,7 @@ Boundaries (STRICT):
 3. All referenced RULE-* documents
 
 ### P1 (Read for Context)
-- `02_REQUIREMENTS/business_rules/` (all active)
+- `02_REQUIREMENTS/invariants/` (all active)
 - Referenced ADR-* documents
 
 ### Default Skip
@@ -1574,16 +1644,33 @@ SYSTEM_TEMPLATES = {
     "00_SYSTEM/AGENT_RULES.md": AGENT_RULES_TEMPLATE,
 }
 
+# README files that should be updated on version upgrade
+# These are system-managed and will be overwritten during update
+UPDATABLE_READMES = [
+    "00_INDEX.md",
+    "00_SYSTEM/README.md",
+    "02_REQUIREMENTS/README.md",
+    "02_REQUIREMENTS/_index.md",
+    "02_REQUIREMENTS/capabilities/README.md",
+    "02_REQUIREMENTS/invariants/README.md",
+    "02_REQUIREMENTS/discussions/README.md",
+    "03_TECH_SPECS/README.md",
+    "04_TASK_LOGS/README.md",
+    "04_TASK_LOGS/active/README.md",
+]
+
 # ============================================================================
 # MIGRATION
 # ============================================================================
-MIGRATION_MAP = {
+
+# v1.x → v2.x migration (legacy)
+MIGRATION_MAP_V1 = {
     "01_PROJECT_CONTEXT/00_IDENTITY.md": None,
     "01_PROJECT_CONTEXT/01_OVERVIEW.md": None,
     "01_PROJECT_CONTEXT/02_ARCHITECTURE.md": "03_TECH_SPECS/architecture/SYSTEM_ARCHITECTURE.md",
     "01_PROJECT_CONTEXT/03_DATA_MODEL.md": "03_TECH_SPECS/architecture/DATA_MODEL.md",
     "01_PROJECT_CONTEXT/04_AGENT_GUIDE.md": None,
-    "02_SERVICES": "02_REQUIREMENTS/features",
+    "02_SERVICES": "02_REQUIREMENTS/capabilities",
     "03_MANAGEMENT/STATUS.md": "04_TASK_LOGS/STATUS.md",
     "03_MANAGEMENT/CHANGELOG.md": "04_TASK_LOGS/CHANGELOG.md",
     "03_MANAGEMENT/WORKLOG.md": None,
@@ -1594,6 +1681,15 @@ MIGRATION_MAP = {
     "90_TOOLING/AGENT_RULES.md": "00_SYSTEM/AGENT_RULES.md",
     "90_TOOLING/scripts": "00_SYSTEM/scripts",
 }
+
+# v2.x → v3.0 migration (capabilities & invariants)
+MIGRATION_MAP_V2_TO_V3 = {
+    "02_REQUIREMENTS/features": "02_REQUIREMENTS/capabilities",
+    "02_REQUIREMENTS/business_rules": "02_REQUIREMENTS/invariants",
+}
+
+# Combined for backward compatibility
+MIGRATION_MAP = {**MIGRATION_MAP_V1, **MIGRATION_MAP_V2_TO_V3}
 
 LEGACY_DIRS_TO_ARCHIVE = [
     "02_SERVICES",

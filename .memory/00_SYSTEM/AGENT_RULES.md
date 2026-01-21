@@ -1,4 +1,4 @@
-# MemoryAtlas Agent Rules (v2.5.0) - Smart Spec Edition
+# MemoryAtlas Agent Rules (v3.0.0) - Smart Spec Edition
 
 > **SYSTEM FILE**: Managed by `memory_manager.py`. DO NOT EDIT.
 > **For custom rules**: Use `01_PROJECT_CONTEXT/01_CONVENTIONS.md`.
@@ -47,7 +47,7 @@ Boundaries (STRICT):
 3. All referenced RULE-* documents
 
 ### P1 (Read for Context)
-- `02_REQUIREMENTS/business_rules/` (all active)
+- `02_REQUIREMENTS/invariants/` (all active)
 - Referenced ADR-* documents
 
 ### Default Skip
