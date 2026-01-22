@@ -1,6 +1,6 @@
 # Capabilities (REQ-*)
 
-> **Template-Version**: 3.1
+> **Template-Version**: 3.3
 >
 > **"시스템은 ~해야 한다"** 형태의 기능/행동을 정의합니다.
 > 논의/대안 검토는 `../discussions/`에 작성하세요.
@@ -21,7 +21,7 @@
 > **Status**: [Draft | Active | Deprecated]
 > **Last Updated**: YYYY-MM-DD
 > **Must-Read**: RULE-XXX-001, ADR-XXX
-> **Template-Version**: 3.1
+> **Template-Version**: 3.3
 
 ---
 

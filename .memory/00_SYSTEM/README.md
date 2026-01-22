@@ -14,7 +14,15 @@
 > ### For Customization
 > 커스텀 규칙이 필요하면 `01_PROJECT_CONTEXT/01_CONVENTIONS.md`에 작성하세요.
 
+## MCP Auto-Launch
+
+- STDIO clients can auto-spawn the MCP server using the configured command.
+- This means the server does not need to be running manually in the background.
+- HTTP mode still requires a long-running server process.
+- Use `python memory_manager.py --bootstrap-mcp --target <client> --os <windows|unix>` to generate MCP bootstrap prompts and templates.
+- Validate with `python memory_manager.py --mcp-check --target <client>`.
+
 ## Version Info
 
-- **Manager Version**: 3.1.0
-- **Template Version**: 3.1
+- **Manager Version**: 3.3.0
+- **Template Version**: 3.3

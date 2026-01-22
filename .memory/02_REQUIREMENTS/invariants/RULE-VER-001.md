@@ -5,7 +5,7 @@
 > **Priority**: High
 > **Last Updated**: 2026-01-22
 > **Must-Read**: RULE-ID-001
-> **Template-Version**: 3.1
+> **Template-Version**: 3.3
 
 ---
 
@@ -19,8 +19,8 @@ MemoryAtlas는 **두 개의 독립적인 버전**을 관리하며, Semantic Vers
 
 | 버전 | 변수명 | 현재 값 | 용도 |
 |------|--------|---------|------|
-| **Manager Version** | `CURRENT_VERSION` | 3.1.0 | CLI 도구 버전 (코드 변경) |
-| **Template Version** | `TEMPLATE_VERSION` | 3.1 | 문서 스키마 버전 (템플릿 구조 변경) |
+| **Manager Version** | `CURRENT_VERSION` | 3.3.0 | CLI 도구 버전 (코드 변경) |
+| **Template Version** | `TEMPLATE_VERSION` | 3.3 | 문서 스키마 버전 (템플릿 구조 변경) |
 
 ### CURRENT_VERSION (Manager Version)
 
@@ -29,7 +29,7 @@ CLI 도구(`memory_manager.py`)의 버전. 코드 변경 시 업데이트.
 **위치**: `src/core/config.py:4`
 
 ```python
-CURRENT_VERSION = "3.1.0"
+CURRENT_VERSION = "3.3.0"
 ```
 
 ### TEMPLATE_VERSION (Template Version)
@@ -39,7 +39,7 @@ CURRENT_VERSION = "3.1.0"
 **위치**: `src/core/config.py:6`
 
 ```python
-TEMPLATE_VERSION = "3.1"
+TEMPLATE_VERSION = "3.3"
 ```
 
 ---
@@ -99,10 +99,10 @@ TEMPLATE_VERSION = "3.1"
 
 | 변경 내용 | 버전 변경 |
 |-----------|-----------|
-| `_index.md` 자동 생성 기능 추가 | `3.0.0` → `3.1.0` (MINOR) |
-| doctor 출력 오타 수정 | `3.1.0` → `3.1.1` (PATCH) |
-| Must-Read 필드 형식 변경 | `3.0` → `3.1` (TEMPLATE MINOR) |
-| 폴더 구조 전면 개편 | `3.1.0` → `4.0.0` (MAJOR) |
+| `_index.md` 자동 생성 기능 추가 | `3.2.0` → `3.3.0` (MINOR) |
+| doctor 출력 오타 수정 | `3.3.0` → `3.3.1` (PATCH) |
+| Must-Read 필드 형식 변경 | `3.2` → `3.3` (TEMPLATE MINOR) |
+| 폴더 구조 전면 개편 | `3.3.0` → `4.0.0` (MAJOR) |
 
 ### Incorrect
 

@@ -67,6 +67,51 @@ def check_structure(root: str) -> int:
     print(f"\nStructure check: {issues} issue(s)")
     return issues
 
+def check_mcp(root: str, target: Optional[str] = None) -> int:
+    """Validate MCP bootstrap outputs (templates and scripts)."""
+    issues = 0
+    mcp_dir = os.path.join(root, "00_SYSTEM", "mcp")
+    templates_dir = os.path.join(mcp_dir, "templates")
+    scripts_dir = os.path.join(root, "00_SYSTEM", "scripts")
+
+    required_files = [
+        os.path.join(mcp_dir, "README.md"),
+        os.path.join(mcp_dir, "mcp_server.py"),
+    ]
+    for path in required_files:
+        if not os.path.exists(path):
+            rel = os.path.relpath(path, root)
+            print(f"! Missing MCP file: {rel}")
+            issues += 1
+
+    if not os.path.isdir(templates_dir):
+        print("! Missing MCP templates directory: 00_SYSTEM/mcp/templates")
+        issues += 1
+    else:
+        if target:
+            template_path = os.path.join(templates_dir, f"{target}.mcp.json")
+            if not os.path.exists(template_path):
+                rel = os.path.relpath(template_path, root)
+                print(f"! Missing MCP template for target: {rel}")
+                issues += 1
+        else:
+            templates = [f for f in os.listdir(templates_dir) if f.endswith(".json")]
+            if not templates:
+                print("! No MCP templates found in 00_SYSTEM/mcp/templates")
+                issues += 1
+
+    script_ps1 = os.path.join(scripts_dir, "run_mcp_server.ps1")
+    script_sh = os.path.join(scripts_dir, "run_mcp_server.sh")
+    if not os.path.exists(script_ps1):
+        print("! Missing MCP run script: 00_SYSTEM/scripts/run_mcp_server.ps1")
+        issues += 1
+    if not os.path.exists(script_sh):
+        print("! Missing MCP run script: 00_SYSTEM/scripts/run_mcp_server.sh")
+        issues += 1
+
+    print(f"MCP check: {issues} issue(s)")
+    return issues
+
 def lint_metadata(root: str) -> int:
     """Check metadata headers in documents."""
     issues = 0

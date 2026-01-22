@@ -1,6 +1,6 @@
 # Requirements (Authority Layer)
 
-> **Template-Version**: 3.1
+> **Template-Version**: 3.3
 >
 > 이 폴더는 **"무엇을 만들 것인가?"**의 **최종 결정**을 저장합니다.
 > 논의/조율 기록은 `discussions/`에 분리합니다.

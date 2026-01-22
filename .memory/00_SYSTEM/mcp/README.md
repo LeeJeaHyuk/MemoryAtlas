@@ -7,7 +7,7 @@ Each section below documents an MCP function exposed by MemoryAtlas.
 ## apply_req
 
 ### Signature
-`apply_req(req_id, dry_run=false, create_spec=true)`
+`apply_req(req_id, dry_run=false, create_spec="auto")`
 
 ### Summary
 Orchestrate the REQ -> RUN pipeline with validation gates.
@@ -15,7 +15,7 @@ Orchestrate the REQ -> RUN pipeline with validation gates.
 ### Inputs
 - `req_id` (str): Target REQ ID.
 - `dry_run` (bool): Preview only.
-- `create_spec` (bool): Create spec draft when true.
+- `create_spec` (bool | "auto"): Create spec draft when true or auto-triggered.
 
 ### Outputs
 - RUN document created/updated in `04_TASK_LOGS/active/`.
@@ -25,8 +25,51 @@ Orchestrate the REQ -> RUN pipeline with validation gates.
 ### Behavior
 - Requires REQ `Status=Active`.
 - Runs `validate(lint)`, `validate(req)`, `validate(links)` gates.
-- Creates 03 specs only when trigger conditions apply.
+- Creates 03 specs when `create_spec` is true or auto-triggered.
 - Does not edit code by default.
+
+## apply_req_full
+
+### Signature
+`apply_req_full(req_id, dry_run=false)`
+
+### Summary
+One-shot orchestration that drives the state machine and returns follow-up hints.
+
+### Inputs
+- `req_id` (str): Target REQ ID.
+- `dry_run` (bool): Preview only.
+
+### Outputs
+- State-aware report (`state`, `run_id`, `next_action`).
+- `instructions` plus `continue_with` / `continue_args` for client-driven steps.
+- DISC draft path on failure.
+
+### Behavior
+- Runs lint/req/links validation on the first pass.
+- Creates RUN when validation passes.
+- Returns implementation instructions; code edits are performed by the client/agent.
+- Runs `--doctor` and finalizes when state is ready.
+
+## continue_req
+
+### Signature
+`continue_req(req_id, implementation_done=false)`
+
+### Summary
+Advance the REQ state machine after implementation or verification.
+
+### Inputs
+- `req_id` (str): Target REQ ID.
+- `implementation_done` (bool): Set true when implementation is complete.
+
+### Outputs
+- State-aware report with next action and any validation errors.
+
+### Behavior
+- Transitions RUN_CREATED → IMPLEMENTING.
+- Transitions IMPLEMENTING → VERIFYING/READY_TO_FINALIZE based on checks.
+- Re-runs validation gates when requested.
 
 ## create_disc_from_failure
 
@@ -37,7 +80,7 @@ Orchestrate the REQ -> RUN pipeline with validation gates.
 Generate a DISC draft for a failed stage.
 
 ### Inputs
-- `context` (dict): stage, errors, files, rules, logs.
+- `context` (dict): stage, errors, files, rules, logs, req_id/target_id.
 
 ### Outputs
 - DISC draft created in `02_REQUIREMENTS/discussions/`.
@@ -143,10 +186,26 @@ Run a single validation check and return issue count.
 - HTTP: `python .memory/00_SYSTEM/mcp/mcp_server.py --http --host 127.0.0.1 --port 8765`
 - Module: `python -m memoryatlas_mcp --stdio`
 
+### Auto-Launch Behavior
+- STDIO clients can auto-spawn the server process on demand using the configured command.
+- This means the server does not need to be manually running in the background.
+- HTTP mode still requires a long-running server process.
+
+### One-Shot Flow (apply_req_full)
+- Call `apply_req_full(req_id)` to create the RUN and receive instructions.
+- Implement changes, then call `apply_req_full(req_id)` again to verify and finalize.
+
+### Spec Auto-Trigger
+- Set REQ metadata `> **Requires-Spec**: true` to auto-create 03 specs.
+
+### DISC Context Example
+- `create_disc_from_failure({"req_id":"REQ-MCP-001","stage":"validate","errors":[{"type":"links","message":"3 link issues"}],"files":["02_REQUIREMENTS/README.md"],"rules":["RULE-LINK-001"],"logs":"..."})`
+
 ### Client Config Templates
 - `claude_code.mcp.json` (STDIO)
 - `codex.mcp.json` (STDIO)
 - `gemini_cli.mcp.json` (STDIO)
+- Bootstrap templates: `00_SYSTEM/mcp/templates/<target>.mcp.json` (from --bootstrap-mcp)
 
 ### Notes
 - Clients usually require one-time server registration.

@@ -52,6 +52,15 @@ class Automator:
     def _now_date(self) -> str:
         return datetime.utcnow().date().isoformat()
 
+    def _parse_bool(self, value: Optional[str]) -> bool:
+        if value is None:
+            return False
+        return value.strip().lower() in {"true", "yes", "1", "y"}
+
+    def _requires_spec(self, req_id: str) -> bool:
+        metadata = self._parse_metadata(self._req_path(req_id).read_text(encoding="utf-8"))
+        return self._parse_bool(metadata.get("Requires-Spec"))
+
     def _update_meta_line(self, text: str, key: str, value: str) -> str:
         pattern = re.compile(rf"^>\s*\*\*{re.escape(key)}\*\*:\s*.*$", re.MULTILINE)
         line = f"> **{key}**: {value}"
@@ -253,7 +262,7 @@ class Automator:
         return text[start:end].strip()
 
     def apply_req(
-        self, req_id: str, dry_run: bool = False, create_spec: bool = True
+        self, req_id: str, dry_run: bool = False, create_spec: Optional[object] = "auto"
     ) -> Dict[str, Any]:
         """Orchestrate the pipeline and return a report."""
         report: Dict[str, Any] = {
@@ -265,11 +274,33 @@ class Automator:
             "disc": None,
         }
         try:
+            from core.checks import check_links, check_requirements, lint_metadata
+
+            errors = []
             if not self.validate_req(req_id):
-                raise ValueError(self.last_error or "Validation failed")
+                errors.append(self.last_error or "Validation failed")
+            lint_issues = lint_metadata(ROOT_DIR)
+            if lint_issues > 0:
+                errors.append(f"{lint_issues} lint issue(s) found")
+            req_issues = check_requirements(ROOT_DIR)
+            if req_issues > 0:
+                errors.append(f"{req_issues} requirement issue(s) found")
+            link_issues = check_links(ROOT_DIR)
+            if link_issues > 0:
+                errors.append(f"{link_issues} link issue(s) found")
+
+            if errors:
+                raise ValueError("; ".join(errors))
+
+            create_spec_mode = create_spec
+            if isinstance(create_spec_mode, str) and create_spec_mode.lower() == "auto":
+                create_spec_mode = self._requires_spec(req_id)
+            if create_spec_mode not in (True, False):
+                create_spec_mode = True
+
             if dry_run:
                 spec_path = (
-                    self.spec_dir / f"SPEC-{req_id}.md" if create_spec else None
+                    self.spec_dir / f"SPEC-{req_id}.md" if create_spec_mode else None
                 )
                 run_path = self.run_dir / f"{self._format_run_id(req_id)}.md"
                 report["status"] = "planned"
@@ -278,7 +309,11 @@ class Automator:
                     "run_path": str(run_path),
                 }
                 return report
-            spec = self.create_spec_draft(req_id, dry_run=False) if create_spec else None
+            spec = (
+                self.create_spec_draft(req_id, dry_run=False)
+                if create_spec_mode
+                else None
+            )
             run_path = self.create_run(req_id, spec_path=spec, dry_run=False)
             report["status"] = "created"
             report["artifacts"] = {
@@ -293,3 +328,35 @@ class Automator:
             disc = self.create_disc_from_failure(req_id, err)
             report["disc"] = str(disc)
             return report
+
+    def create_disc_from_context(self, context: Dict[str, Any]) -> Path:
+        target_id = (
+            context.get("req_id")
+            or context.get("target_id")
+            or context.get("id")
+            or "REQ-GEN-000"
+        )
+        lines = []
+        if context.get("stage"):
+            lines.append(f"Stage: {context['stage']}")
+        if context.get("errors"):
+            lines.append("Errors:")
+            for item in context["errors"]:
+                if isinstance(item, dict):
+                    msg = item.get("message") or item.get("type") or str(item)
+                else:
+                    msg = str(item)
+                lines.append(f"- {msg}")
+        if context.get("rules"):
+            lines.append("Rules:")
+            for rule in context["rules"]:
+                lines.append(f"- {rule}")
+        if context.get("files"):
+            lines.append("Files:")
+            for file_path in context["files"]:
+                lines.append(f"- {file_path}")
+        if context.get("logs"):
+            lines.append("Logs:")
+            lines.append(str(context["logs"]))
+        error_log = "\n".join(lines) if lines else "No additional context provided."
+        return self.create_disc_from_failure(str(target_id), error_log)

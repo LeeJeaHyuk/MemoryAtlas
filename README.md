@@ -52,6 +52,9 @@ python memory_manager.py --dry-run
 # Create a RUN from a REQ (optionally skip spec draft)
 python memory_manager.py apply-req --id REQ-EXAMPLE-001
 python memory_manager.py apply-req --id REQ-EXAMPLE-001 --dry-run --no-spec
+
+# Generate MCP bootstrap prompt and templates
+python memory_manager.py --bootstrap-mcp --target claude_code --os windows
 ```
 
 ## Reverse engineering (draft)
@@ -103,6 +106,7 @@ python memory_manager.py --lint      # Metadata headers
 python memory_manager.py --links     # Links
 python memory_manager.py --req       # REQ/RULE validation
 python memory_manager.py --runs      # RUN validation
+python memory_manager.py --mcp-check # MCP bootstrap outputs
 ```
 
 ## Build and development

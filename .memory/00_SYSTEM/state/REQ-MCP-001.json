@@ -1,0 +1,47 @@
+{
+  "req_id": "REQ-MCP-001",
+  "run_id": "RUN-REQ-MCP-001-step-01",
+  "state": "COMPLETED",
+  "created_at": "2026-01-22T14:03:12.059753",
+  "updated_at": "2026-01-22T14:20:57.771488",
+  "history": [
+    {
+      "from": "IDLE",
+      "to": "VALIDATING",
+      "timestamp": "2026-01-22T14:03:12.066789",
+      "run_id": null
+    },
+    {
+      "from": "VALIDATING",
+      "to": "RUN_CREATED",
+      "timestamp": "2026-01-22T14:03:12.077827",
+      "run_id": "RUN-REQ-MCP-001-step-01"
+    },
+    {
+      "from": "RUN_CREATED",
+      "to": "IMPLEMENTING",
+      "timestamp": "2026-01-22T14:19:06.734370",
+      "run_id": "RUN-REQ-MCP-001-step-01"
+    },
+    {
+      "from": "IMPLEMENTING",
+      "to": "VERIFYING",
+      "timestamp": "2026-01-22T14:19:45.941021",
+      "run_id": "RUN-REQ-MCP-001-step-01"
+    },
+    {
+      "from": "VERIFYING",
+      "to": "READY_TO_FINALIZE",
+      "timestamp": "2026-01-22T14:19:46.098750",
+      "run_id": "RUN-REQ-MCP-001-step-01"
+    },
+    {
+      "from": "READY_TO_FINALIZE",
+      "to": "COMPLETED",
+      "timestamp": "2026-01-22T14:20:57.771488",
+      "run_id": "RUN-REQ-MCP-001-step-01"
+    }
+  ],
+  "last_error": null,
+  "disc_path": null
+}

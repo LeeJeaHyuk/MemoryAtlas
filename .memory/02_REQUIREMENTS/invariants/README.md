@@ -1,6 +1,6 @@
 # Invariants (RULE-*)
 
-> **Template-Version**: 3.1
+> **Template-Version**: 3.3
 >
 > **"항상 ~이다 / ~는 금지"** 형태의 불변 규칙을 정의합니다.
 
@@ -20,7 +20,7 @@
 > **Priority**: [Critical | High | Medium | Low]
 > **Last Updated**: YYYY-MM-DD
 > **Must-Read**: RULE-XXX-001, ADR-XXX
-> **Template-Version**: 3.1
+> **Template-Version**: 3.3
 
 ---
 

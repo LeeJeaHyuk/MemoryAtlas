@@ -1,6 +1,6 @@
 # 02_REQUIREMENTS 읽기 가이드
 
-> **Template-Version**: 3.1
+> **Template-Version**: 3.3
 >
 > 이 문서는 사람과 LLM이 요구사항 문서를 **어디서부터 읽어야 하는지** 안내합니다.
 

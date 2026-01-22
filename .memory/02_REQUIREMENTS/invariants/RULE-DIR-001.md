@@ -3,15 +3,15 @@
 > **ID**: RULE-DIR-001
 > **Domain**: STRUCTURE
 > **Priority**: Critical
-> **Last Updated**: 2026-01-20
+> **Last Updated**: 2026-01-22
 > **Must-Read**: RULE-ID-001
-> **Template-Version**: 2.4
+> **Template-Version**: 3.3
 
 ---
 
 ## Rule Statement (최종 결정)
 
-`.memory/` 폴더는 정해진 15개의 필수 하위 디렉토리를 포함해야 하며, 이 구조는 MemoryAtlas 시스템이 정상 작동하기 위한 최소 요구사항이다.
+`.memory/` 폴더는 정해진 16개의 필수 하위 디렉토리를 포함해야 하며, 이 구조는 MemoryAtlas 시스템이 정상 작동하기 위한 최소 요구사항이다.
 
 ---
 
@@ -23,9 +23,11 @@
 DIRS = [
     "00_SYSTEM/scripts",
     "00_SYSTEM/mcp",
+    "00_SYSTEM/mcp/templates",
+    "00_SYSTEM/state",
     "01_PROJECT_CONTEXT",
-    "02_REQUIREMENTS/features",
-    "02_REQUIREMENTS/business_rules",
+    "02_REQUIREMENTS/capabilities",
+    "02_REQUIREMENTS/invariants",
     "02_REQUIREMENTS/discussions",
     "03_TECH_SPECS/architecture",
     "03_TECH_SPECS/api_specs",
@@ -46,25 +48,27 @@ DIRS = [
 
 ```
 .memory/
-├── 00_SYSTEM/
-│   └── scripts/              # 시스템 스크립트 (memory_manager.py 복사본)
-│   └── mcp/                  # MCP definitions (auto-generated)
-├── 01_PROJECT_CONTEXT/       # 프로젝트 헌법 (GOALS, CONVENTIONS)
-├── 02_REQUIREMENTS/          # 요구사항 (Authority Layer)
-│   ├── features/             # REQ-* (기능 결정)
-│   ├── business_rules/       # RULE-* (비즈니스 규칙)
-│   └── discussions/          # DISC-* (조율 기록)
-├── 03_TECH_SPECS/            # 기술 명세 (HOW Layer)
-│   ├── architecture/         # 시스템 구조도, DB 스키마
-│   ├── api_specs/            # API 명세서
-│   └── decisions/            # ADR-* (기술 결정 근거)
-├── 04_TASK_LOGS/             # 실행 로그 (Execution Layer)
-│   ├── active/               # RUN-* (진행중 작업)
-│   └── archive/              # 완료된 작업 (YYYY-MM/ 형식)
-├── 98_KNOWLEDGE/             # 지식 베이스
-│   └── troubleshooting/      # 해결된 문제들
-└── 99_ARCHIVE/               # 더 이상 사용하지 않는 문서
-    └── discussions/          # 구버전 논의 기록
+  00_SYSTEM/
+    scripts/              # System scripts (memory_manager.py copy)
+    mcp/                  # MCP definitions (auto-generated)
+      templates/          # Client config templates
+    state/                # MCP state snapshots
+  01_PROJECT_CONTEXT/     # Project goals and conventions
+  02_REQUIREMENTS/        # Requirements (Authority Layer)
+    capabilities/         # REQ-* (capabilities)
+    invariants/           # RULE-* (invariants)
+    discussions/          # DISC-* (discussions)
+  03_TECH_SPECS/          # Technical specs (HOW Layer)
+    architecture/         # Architecture and data models
+    api_specs/            # API specs
+    decisions/            # ADR-* (decisions)
+  04_TASK_LOGS/           # Execution logs
+    active/               # RUN-* (active)
+    archive/              # Completed runs (YYYY-MM/)
+  98_KNOWLEDGE/           # Knowledge base
+    troubleshooting/      # Troubleshooting notes
+  99_ARCHIVE/             # Deprecated content
+    discussions/          # Archived discussions
 ```
 
 ---

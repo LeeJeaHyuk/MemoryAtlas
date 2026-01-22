@@ -1,9 +1,9 @@
 
 import re
 
-CURRENT_VERSION = "3.1.0"
+CURRENT_VERSION = "3.3.0"
 ROOT_DIR = ".memory"
-TEMPLATE_VERSION = "3.1"  # Template schema version (Context Bootstrapping)
+TEMPLATE_VERSION = "3.3"  # Template schema version (Context Bootstrapping)
 
 # ============================================================================
 # STRUCTURE (v3.0) - Capabilities & Invariants Edition
@@ -31,6 +31,8 @@ TEMPLATE_VERSION = "3.1"  # Template schema version (Context Bootstrapping)
 DIRS = [
     "00_SYSTEM/scripts",
     "00_SYSTEM/mcp",
+    "00_SYSTEM/mcp/templates",
+    "00_SYSTEM/state",
     "01_PROJECT_CONTEXT",
     "02_REQUIREMENTS/capabilities",
     "02_REQUIREMENTS/invariants",
@@ -1252,6 +1254,14 @@ archive/
 > ### For Customization
 > 커스텀 규칙이 필요하면 `01_PROJECT_CONTEXT/01_CONVENTIONS.md`에 작성하세요.
 
+## MCP Auto-Launch
+
+- STDIO clients can auto-spawn the MCP server using the configured command.
+- This means the server does not need to be running manually in the background.
+- HTTP mode still requires a long-running server process.
+- Use `python memory_manager.py --bootstrap-mcp --target <client> --os <windows|unix>` to generate MCP bootstrap prompts and templates.
+- Validate with `python memory_manager.py --mcp-check --target <client>`.
+
 ## Version Info
 
 - **Manager Version**: {CURRENT_VERSION}
@@ -1550,12 +1560,12 @@ BOOTSTRAP_TEMPLATES = {
 # ============================================================================
 MCP_DEFINITIONS = {
     "apply_req": {
-        "signature": "apply_req(req_id, dry_run=false, create_spec=true)",
+        "signature": "apply_req(req_id, dry_run=false, create_spec=\"auto\")",
         "summary": "Orchestrate the REQ -> RUN pipeline with validation gates.",
         "inputs": [
             "`req_id` (str): Target REQ ID.",
             "`dry_run` (bool): Preview only.",
-            "`create_spec` (bool): Create spec draft when true.",
+            "`create_spec` (bool | \"auto\"): Create spec draft when true or auto-triggered.",
         ],
         "outputs": [
             "RUN document created/updated in `04_TASK_LOGS/active/`.",
@@ -1565,8 +1575,43 @@ MCP_DEFINITIONS = {
         "behavior": [
             "Requires REQ `Status=Active`.",
             "Runs `validate(lint)`, `validate(req)`, `validate(links)` gates.",
-            "Creates 03 specs only when trigger conditions apply.",
+            "Creates 03 specs when `create_spec` is true or auto-triggered.",
             "Does not edit code by default.",
+        ],
+    },
+    "apply_req_full": {
+        "signature": "apply_req_full(req_id, dry_run=false)",
+        "summary": "One-shot orchestration that drives the state machine and returns follow-up hints.",
+        "inputs": [
+            "`req_id` (str): Target REQ ID.",
+            "`dry_run` (bool): Preview only.",
+        ],
+        "outputs": [
+            "State-aware report (`state`, `run_id`, `next_action`).",
+            "`instructions` plus `continue_with` / `continue_args` for client-driven steps.",
+            "DISC draft path on failure.",
+        ],
+        "behavior": [
+            "Runs lint/req/links validation on the first pass.",
+            "Creates RUN when validation passes.",
+            "Returns implementation instructions; code edits are performed by the client/agent.",
+            "Runs `--doctor` and finalizes when state is ready.",
+        ],
+    },
+    "continue_req": {
+        "signature": "continue_req(req_id, implementation_done=false)",
+        "summary": "Advance the REQ state machine after implementation or verification.",
+        "inputs": [
+            "`req_id` (str): Target REQ ID.",
+            "`implementation_done` (bool): Set true when implementation is complete.",
+        ],
+        "outputs": [
+            "State-aware report with next action and any validation errors.",
+        ],
+        "behavior": [
+            "Transitions RUN_CREATED → IMPLEMENTING.",
+            "Transitions IMPLEMENTING → VERIFYING/READY_TO_FINALIZE based on checks.",
+            "Re-runs validation gates when requested.",
         ],
     },
     "validate": {
@@ -1613,7 +1658,7 @@ MCP_DEFINITIONS = {
         "signature": "create_disc_from_failure(context)",
         "summary": "Generate a DISC draft for a failed stage.",
         "inputs": [
-            "`context` (dict): stage, errors, files, rules, logs.",
+            "`context` (dict): stage, errors, files, rules, logs, req_id/target_id.",
         ],
         "outputs": [
             "DISC draft created in `02_REQUIREMENTS/discussions/`.",

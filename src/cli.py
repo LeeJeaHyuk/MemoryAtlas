@@ -83,11 +83,13 @@ import argparse
 import sys
 
 from core.bootstrap import bootstrap_init
+from core.bootstrap_mcp import bootstrap_mcp
 from core.checks import (
     check_links,
     check_requirements,
     check_runs,
     check_structure,
+    check_mcp,
     doctor,
     lint_metadata,
 )
@@ -144,6 +146,11 @@ Examples:
         help="Create BOOTSTRAP_PROMPT.md for AI-driven project initialization (Context Bootstrapping).",
     )
     update_group.add_argument(
+        "--bootstrap-mcp",
+        action="store_true",
+        help="Create MCP bootstrap prompt and templates for a target client.",
+    )
+    update_group.add_argument(
         "--reverse",
         action="store_true",
         help="Generate reverse engineering prompt for partial code analysis.",
@@ -152,6 +159,18 @@ Examples:
         "--focus",
         type=str,
         help="Focus path for reverse engineering (e.g., src/auth).",
+    )
+    update_group.add_argument(
+        "--target",
+        type=str,
+        help="Target client for bootstrap-mcp or mcp-check (claude_code, claude_desktop, codex, gemini_cli, ci).",
+    )
+    update_group.add_argument(
+        "--os",
+        dest="os_name",
+        type=str,
+        choices=["windows", "unix"],
+        help="Target OS for bootstrap-mcp (windows or unix).",
     )
 
     check_group = parser.add_argument_group("Check Commands")
@@ -189,6 +208,11 @@ Examples:
         "--runs",
         action="store_true",
         help="Validate RUN documents (execution unit model).",
+    )
+    check_group.add_argument(
+        "--mcp-check",
+        action="store_true",
+        help="Validate MCP bootstrap outputs (templates and scripts).",
     )
 
     status_group = parser.add_argument_group("Status Commands")
@@ -237,6 +261,13 @@ def main() -> int:
             print(f"  {name}: {path}")
         return 0
 
+    if args.bootstrap_mcp:
+        if not args.target or not args.os_name:
+            print("Error: --target and --os are required when running --bootstrap-mcp")
+            return 1
+        bootstrap_mcp(args.target, args.os_name, dry_run=args.dry_run)
+        return 0
+
     # Bootstrap mode: create AI kick-off meeting files and exit
     if args.bootstrap:
         bootstrap_init(dry_run=args.dry_run)
@@ -250,7 +281,14 @@ def main() -> int:
         return 0
 
     run_checks = any([
-        args.doctor, args.check, args.lint, args.links, args.req, args.runs, args.status
+        args.doctor,
+        args.check,
+        args.lint,
+        args.links,
+        args.req,
+        args.runs,
+        args.mcp_check,
+        args.status,
     ])
     run_update = args.update or args.migrate or not run_checks
 
@@ -272,6 +310,8 @@ def main() -> int:
             exit_code += check_requirements(ROOT_DIR)
         if args.runs:
             exit_code += check_runs(ROOT_DIR)
+        if args.mcp_check:
+            exit_code += check_mcp(ROOT_DIR, target=args.target)
 
     if args.status:
         status_report(ROOT_DIR, show_recent=args.recent)

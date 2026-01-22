@@ -20,7 +20,17 @@
       "Bash(python src/cli.py:*)",
       "Bash(python:*)",
       "Bash(where:*)",
-      "Bash(C:UsersHonganaconda3python.exe -c \"print\\(''hello''\\)\")"
+      "Bash(C:UsersHonganaconda3python.exe -c \"print\\(''hello''\\)\")",
+      "mcp__serena__insert_after_symbol",
+      "mcp__serena__get_symbols_overview",
+      "Bash(pip install:*)",
+      "Bash(cmd.exe /c \"cd /d c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory && python build.py\")",
+      "Bash(cmd.exe /c \"cd /d c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory && python build.py && echo BUILD_OK\")",
+      "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python build.py; echo ''Exit code:'' $LASTEXITCODE\")",
+      "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python memory_manager.py update\")",
+      "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python memory_manager.py --update\")",
+      "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python -c \"\"import sys; sys.path.insert\\(0, ''src''\\); from mcp_server import apply_req, continue_req, finalize_run; print\\(''All MCP functions imported successfully''\\)\"\"\")",
+      "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python -c \"\"import sys; sys.path.insert\\(0, ''src''\\); from core.state import StateManager, get_next_action, list_active_states; print\\(''State module imported successfully''\\)\"\"\")"
     ]
   }
 }
