@@ -1,9 +1,9 @@
 
 import re
 
-CURRENT_VERSION = "3.0.0"
+CURRENT_VERSION = "3.1.0"
 ROOT_DIR = ".memory"
-TEMPLATE_VERSION = "3.0"  # Template schema version (Context Bootstrapping)
+TEMPLATE_VERSION = "3.1"  # Template schema version (Context Bootstrapping)
 
 # ============================================================================
 # STRUCTURE (v3.0) - Capabilities & Invariants Edition
@@ -30,6 +30,7 @@ TEMPLATE_VERSION = "3.0"  # Template schema version (Context Bootstrapping)
 
 DIRS = [
     "00_SYSTEM/scripts",
+    "00_SYSTEM/mcp",
     "01_PROJECT_CONTEXT",
     "02_REQUIREMENTS/capabilities",
     "02_REQUIREMENTS/invariants",
@@ -614,6 +615,31 @@ List related documents here.
 
 - Must-Read allows only RULE/ADR IDs (CTX is P0 and not allowed here).
 - If you use markdown links, the link text must be the ID (e.g. `[RULE-ID-001](invariants/RULE-ID-001.md)`).
+
+## Partial Updates Policy (Recommended)
+
+- Keep REQ as the full contract; `Status=Active` means the whole REQ is executable.
+- Do not mix "pending/later" items inside an Active REQ. Use DISC or a new Draft REQ.
+- When only part changes, narrow scope in RUN (In Scope / Out of Scope) and reference the target sections.
+- Record evidence in RUN for "already implemented" vs "needs work":
+  tests passed, commands run, and code locations.
+
+### When to Revisit a Pending Section Model
+
+Adopt a formal Pending section only if at least two are true:
+- A single REQ routinely contains 10+ sub-features and only a subset is delivered each time.
+- Agents frequently misjudge scope, causing repeated rework.
+- There are multiple collaborators and explicit sprint deferrals are required.
+- Roadmap-level proposals must live inside the REQ.
+
+## MCP Automation Notes
+
+- `Automator.apply_req(req_id[, dry_run, create_spec])` drives the pipeline: validate REQ, build a spec draft (optional), create a RUN, and generate DISC drafts on failure.
+- The CLI exposes `python memory_manager.py apply-req --id REQ-XXX-001 [--dry-run] [--no-spec]`; it prints artifacts or failure/discussion links.
+- FastMCP agents can call `src/mcp_server.py::apply_req` to run the same flow and receive a JSON-like report.
+- Read-only MCP helpers: `req_status(req_id)` for readiness checks, `run_report(run_id)` for structured RUN summaries.
+
+
 """,
 
     "02_REQUIREMENTS/capabilities/README.md": f"""# Capabilities (REQ-*)
@@ -1050,6 +1076,12 @@ Examples:
 - `RUN-REQ-AUTH-001-step-01.md`
 - `RUN-REQ-AUTH-001-step-02.md`
 - `RUN-RULE-DATA-001-step-01.md`
+
+## Scope for Partial Updates
+
+When only part of a REQ changes, define In Scope / Out of Scope in the RUN.
+Keep the REQ as the full contract; use DISC or a new Draft REQ for pending work.
+
 """,
 
     "04_TASK_LOGS/active/README.md": f"""# Active Tasks (Execution)
@@ -1074,6 +1106,16 @@ Examples:
 
 (이 단계의 목표 - 하나만)
 
+## Scope
+
+### In Scope
+
+- (List the parts of the REQ you will change)
+
+### Out of Scope
+
+- (Explicitly state what will not be touched this run)
+
 ## Steps
 
 1. [ ] Step 1
@@ -1090,6 +1132,12 @@ Examples:
 ### Success Condition
 (성공 조건 상세)
 
+## Evidence (Implementation Proof)
+
+- Tests: (what passed)
+- Commands: (what was executed)
+- Code references: (files/functions showing current behavior)
+
 ## Output
 
 (생성/수정된 파일 목록)
@@ -1105,7 +1153,8 @@ Examples:
 3. **Verification 명시**: 성공 조건 + Self-Check 체크리스트
 4. **Output 기록**: 생성/수정 파일 목록
 5. **Self-Check 필수**: 테스트, Boundary, Spec 일치 확인
-""",
+6. **Scope ??**: In Scope / Out of Scope? ?? ?? ??
+7. **Evidence ??**: ???/???/?? ?? ??""",
 
     "04_TASK_LOGS/archive/README.md": f"""# Archived Tasks
 
@@ -1197,6 +1246,7 @@ archive/
 > ### Overwrite Policy
 > - **AGENT_RULES.md**: 시스템 업데이트 시 덮어쓰기됨
 > - **scripts/**: 시스템 업데이트 시 덮어쓰기됨
+> - **mcp/**: auto-generated MCP definitions (overwritten on update)
 > - 사용자/에이전트 수정 -> 다음 업데이트에서 원복
 >
 > ### For Customization
@@ -1205,8 +1255,7 @@ archive/
 ## Version Info
 
 - **Manager Version**: {CURRENT_VERSION}
-- **Template Version**: {TEMPLATE_VERSION}
-""",
+- **Template Version**: {TEMPLATE_VERSION}""",
 }
 
 # ============================================================================
@@ -1494,6 +1543,116 @@ BOOTSTRAP_GOALS_TEMPLATE = f"""# Project Goals
 
 BOOTSTRAP_TEMPLATES = {
     "BOOTSTRAP_PROMPT.md": BOOTSTRAP_PROMPT_TEMPLATE,
+}
+
+# ============================================================================
+# MCP DEFINITIONS (SYSTEM-GENERATED)
+# ============================================================================
+MCP_DEFINITIONS = {
+    "apply_req": {
+        "signature": "apply_req(req_id, dry_run=false, create_spec=true)",
+        "summary": "Orchestrate the REQ -> RUN pipeline with validation gates.",
+        "inputs": [
+            "`req_id` (str): Target REQ ID.",
+            "`dry_run` (bool): Preview only.",
+            "`create_spec` (bool): Create spec draft when true.",
+        ],
+        "outputs": [
+            "RUN document created/updated in `04_TASK_LOGS/active/`.",
+            "DISC draft path on failure.",
+            "Stage/result report.",
+        ],
+        "behavior": [
+            "Requires REQ `Status=Active`.",
+            "Runs `validate(lint)`, `validate(req)`, `validate(links)` gates.",
+            "Creates 03 specs only when trigger conditions apply.",
+            "Does not edit code by default.",
+        ],
+    },
+    "validate": {
+        "signature": "validate(scope)",
+        "summary": "Run a single validation check and return issue count.",
+        "inputs": [
+            "`scope` (str): lint | req | links | doctor.",
+        ],
+        "outputs": [
+            "Issue count and console report.",
+        ],
+        "behavior": [
+            "Uses the same checks as `memory_manager.py`.",
+        ],
+    },
+    "create_run": {
+        "signature": "create_run(req_id)",
+        "summary": "Create a RUN document from template for a REQ.",
+        "inputs": [
+            "`req_id` (str): Target REQ ID.",
+        ],
+        "outputs": [
+            "RUN document created in `04_TASK_LOGS/active/`.",
+        ],
+        "behavior": [
+            "Includes Objective/Scope/Plan, Design Summary, Validation Gates, Exit Criteria.",
+            "Keeps required RUN metadata fields.",
+        ],
+    },
+    "finalize_run": {
+        "signature": "finalize_run(run_id)",
+        "summary": "Mark a RUN as completed and archive it.",
+        "inputs": [
+            "`run_id` (str): RUN ID.",
+        ],
+        "outputs": [
+            "RUN moved to `04_TASK_LOGS/archive/` after validation.",
+        ],
+        "behavior": [
+            "Requires `--doctor` pass before completion.",
+        ],
+    },
+    "create_disc_from_failure": {
+        "signature": "create_disc_from_failure(context)",
+        "summary": "Generate a DISC draft for a failed stage.",
+        "inputs": [
+            "`context` (dict): stage, errors, files, rules, logs.",
+        ],
+        "outputs": [
+            "DISC draft created in `02_REQUIREMENTS/discussions/`.",
+        ],
+        "behavior": [
+            "Includes summary, evidence, hypotheses, fix options, next steps.",
+            "One DISC per failure event.",
+        ],
+    },
+    "req_status": {
+        "signature": "req_status(req_id)",
+        "summary": "Inspect REQ readiness without executing pipeline.",
+        "inputs": [
+            "`req_id` (str): Target REQ ID.",
+        ],
+        "outputs": [
+            "`status`: metadata status value.",
+            "`metadata`: parsed REQ metadata.",
+            "`readiness`: true/false.",
+            "`blocking_issues`: list of reasons.",
+        ],
+        "behavior": [
+            "Does not write any files.",
+            "Useful for preflight checks in UIs.",
+        ],
+    },
+    "run_report": {
+        "signature": "run_report(run_id)",
+        "summary": "Return a structured summary of a RUN document.",
+        "inputs": [
+            "`run_id` (str): RUN ID.",
+        ],
+        "outputs": [
+            "`objective`, `scope`, `status`, `validation_state`, `artifacts`.",
+        ],
+        "behavior": [
+            "Read-only; does not move or update RUN files.",
+        ],
+    },
 }
 
 # ============================================================================

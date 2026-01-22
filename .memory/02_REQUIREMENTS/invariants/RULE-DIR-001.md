@@ -11,7 +11,7 @@
 
 ## Rule Statement (최종 결정)
 
-`.memory/` 폴더는 정해진 14개의 필수 하위 디렉토리를 포함해야 하며, 이 구조는 MemoryAtlas 시스템이 정상 작동하기 위한 최소 요구사항이다.
+`.memory/` 폴더는 정해진 15개의 필수 하위 디렉토리를 포함해야 하며, 이 구조는 MemoryAtlas 시스템이 정상 작동하기 위한 최소 요구사항이다.
 
 ---
 
@@ -22,6 +22,7 @@
 ```python
 DIRS = [
     "00_SYSTEM/scripts",
+    "00_SYSTEM/mcp",
     "01_PROJECT_CONTEXT",
     "02_REQUIREMENTS/features",
     "02_REQUIREMENTS/business_rules",
@@ -47,6 +48,7 @@ DIRS = [
 .memory/
 ├── 00_SYSTEM/
 │   └── scripts/              # 시스템 스크립트 (memory_manager.py 복사본)
+│   └── mcp/                  # MCP definitions (auto-generated)
 ├── 01_PROJECT_CONTEXT/       # 프로젝트 헌법 (GOALS, CONVENTIONS)
 ├── 02_REQUIREMENTS/          # 요구사항 (Authority Layer)
 │   ├── features/             # REQ-* (기능 결정)
@@ -76,7 +78,7 @@ $ python memory_manager.py --check
 Structure check: 0 issue(s)
 ```
 
-모든 14개 디렉토리가 존재하면 통과.
+모든 15개 디렉토리가 존재하면 통과.
 
 ### ❌ Incorrect
 
@@ -96,7 +98,7 @@ Structure check: 2 issue(s)
 
 ## Exceptions
 
-없음. 모든 14개 디렉토리는 필수. 
+없음. 모든 15개 디렉토리는 필수. 
 
 **참고**: 프로젝트에서 사용하지 않는 폴더라도 빈 폴더로 존재해야 검증을 통과한다.
 

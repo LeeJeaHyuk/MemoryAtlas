@@ -1,57 +1,123 @@
 # MemoryAtlas
 
-MemoryAtlas는 `.memory` 폴더에 프로젝트 문맥을 구조화하고 문서 규칙을 검증하는 메모리 기반 개발 도구입니다.
+MemoryAtlas is a memory-driven development toolkit that keeps project context,
+requirements, and execution logs aligned for humans and LLMs.
 
-## 주요 기능
-- `.memory` 구조 초기화/업데이트
-- 구조/메타데이터/링크/REQ/RUN 검증 (`--doctor` 또는 개별 체크)
-- LLM 프로젝트 킥오프용 부트스트랩 프롬프트 생성 (`--bootstrap`)
-- 작업 상태 요약 리포트 출력 (`--status`)
+## What this repo contains
 
-## 요구 사항
-- Python 3.x (표준 라이브러리만 사용)
+- A CLI tool (`memory_manager.py`) built from `src/` via `build.py`.
+- A `.memory/` workspace that stores the project knowledge base.
+- An MCP automation server and client templates under `.memory/00_SYSTEM/mcp/`.
+- A validation engine that enforces the MemoryAtlas authority model.
 
-## 빠른 시작
+## Core capabilities (from `.memory/02_REQUIREMENTS/capabilities/`)
+
+- Initialize or update the `.memory/` structure.
+- Bootstrap project context for AI-assisted setup (`--bootstrap`).
+- Validate structure, metadata, links, requirements, and RUN logs.
+- Generate a status report for active tasks (`--status`).
+- Reverse-engineer focused code areas into prompts (`--reverse`, draft).
+- Build a single-file CLI with Stickytape (`build.py`).
+- Automate REQ -> RUN creation via CLI and MCP tools.
+
+## Non-negotiable invariants (from `.memory/02_REQUIREMENTS/invariants/`)
+
+- Required `.memory/` directory layout (`RULE-DIR-001`).
+- Three-way ID consistency: filename, header, metadata (`RULE-VALID-001`).
+- Strict metadata header fields by document type (`RULE-META-001`).
+- Must-Read field allows only RULE/ADR IDs (`RULE-MUST-001`).
+- Link validation rules for documentation (`RULE-LINK-001`).
+- Versioning policy for manager vs template (`RULE-VER-001`).
+
+See the authoritative docs in `.memory/00_INDEX.md` and `.memory/02_REQUIREMENTS/`.
+
+## Quick start
+
 ```bash
+# Initialize or update .memory
 python memory_manager.py
+
+# Full system validation
 python memory_manager.py --doctor
+
+# Show active task summary
 python memory_manager.py --status
+
+# Create AI bootstrap prompts
 python memory_manager.py --bootstrap
+
+# Preview changes without writing
+python memory_manager.py --dry-run
+
+# Create a RUN from a REQ (optionally skip spec draft)
+python memory_manager.py apply-req --id REQ-EXAMPLE-001
+python memory_manager.py apply-req --id REQ-EXAMPLE-001 --dry-run --no-spec
 ```
 
-## 개발 및 빌드
-- 소스는 `src/` 아래에서 관리하고, 배포용 단일 파일은 `build.py`로 생성합니다.
-- 빌드 결과는 루트의 `memory_manager.py`로 출력됩니다.
+## Reverse engineering (draft)
+
+Generate a focused prompt for partial code analysis:
 
 ```bash
-# 필요 시 설치
-pip install stickytape
+python memory_manager.py --reverse --focus src/core
+```
 
-# 단일 파일 빌드
+This creates `.memory/00_REVERSE_PROMPT.md`.
+
+## MCP automation
+
+MCP tool definitions and client templates live in `.memory/00_SYSTEM/mcp/`.
+See `.memory/00_SYSTEM/mcp/README.md` for the full list (apply_req, req_status, run_report, etc.).
+
+```bash
+# STDIO server (local)
+python .memory/00_SYSTEM/mcp/mcp_server.py --stdio
+
+# Module entrypoint
+python -m memoryatlas_mcp --stdio
+```
+
+## .memory layout (v3 Capabilities & Invariants)
+
+```
+.memory/
+  00_SYSTEM/                  # System-managed rules, scripts, and MCP entrypoints
+  01_PROJECT_CONTEXT/         # Project goals and conventions
+  02_REQUIREMENTS/
+    capabilities/             # REQ-* (what the system must do)
+    invariants/               # RULE-* (non-negotiable rules)
+    discussions/              # DISC-* (reference-only discussions)
+  03_TECH_SPECS/              # ADRs and technical specs (how)
+  04_TASK_LOGS/
+    active/                   # RUN-* execution steps
+    archive/                  # Completed task logs
+  98_KNOWLEDGE/               # Troubleshooting and shared knowledge
+  99_ARCHIVE/                 # Deprecated or legacy content
+```
+
+## Common validation commands
+
+```bash
+python memory_manager.py --check     # Structure
+python memory_manager.py --lint      # Metadata headers
+python memory_manager.py --links     # Links
+python memory_manager.py --req       # REQ/RULE validation
+python memory_manager.py --runs      # RUN validation
+```
+
+## Build and development
+
+- Python 3.8+ is required.
+- `build.py` bundles `src/` into `memory_manager.py`.
+- Install Stickytape only when building:
+
+```bash
+pip install stickytape
 python build.py
 ```
 
-## 자주 쓰는 명령
-```bash
-python memory_manager.py --check     # 구조 검사
-python memory_manager.py --lint      # 문서 메타데이터 검사
-python memory_manager.py --links     # 링크 검사
-python memory_manager.py --req       # REQ/RULE 검증
-python memory_manager.py --runs      # RUN 문서 검증
-python memory_manager.py --dry-run   # 변경 사항 미리보기
-```
+## Where to start
 
-## 디렉터리 구조 (요약)
-```
-.memory/
-  00_SYSTEM/            # 시스템 관리 영역 (자동 관리)
-  01_PROJECT_CONTEXT/   # 목표, 규칙, 가이드
-  02_REQUIREMENTS/      # REQ/RULE (권한 문서)
-  03_TECH_SPECS/        # 기술 사양, ADR
-  04_TASK_LOGS/         # RUN 로그 (작업 이력)
-  98_KNOWLEDGE/         # 지식/트러블슈팅 아카이브
-```
-
-## 참고 사항
-- `00_SYSTEM`은 `memory_manager.py`가 관리하므로 직접 수정하지 않는 것을 권장합니다.
-- 커스텀 규칙은 `01_PROJECT_CONTEXT/01_CONVENTIONS.md`에 작성하세요.
+- `.memory/00_INDEX.md` for the documentation map and reading priority.
+- `.memory/01_PROJECT_CONTEXT/00_GOALS.md` for project identity.
+- `.memory/01_PROJECT_CONTEXT/01_CONVENTIONS.md` for working rules.

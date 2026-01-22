@@ -1,8 +1,16 @@
 
 import os
 import shutil
+from typing import List
 
-from core.config import CURRENT_VERSION, DIRS, DOC_TEMPLATES, SYSTEM_TEMPLATES, UPDATABLE_READMES
+from core.config import (
+    CURRENT_VERSION,
+    DIRS,
+    DOC_TEMPLATES,
+    MCP_DEFINITIONS,
+    SYSTEM_TEMPLATES,
+    UPDATABLE_READMES,
+)
 
 def write_file(path: str, content: str, dry_run: bool = False) -> None:
     """Write content to file, creating parent directories if needed."""
@@ -86,6 +94,164 @@ def update_readme_files(root: str, dry_run: bool = False) -> None:
             os.makedirs(dir_name, exist_ok=True)
         write_file(path, content)
         print(f"  * Updated readme: {rel_path}")
+
+def render_mcp_collection(definitions: dict) -> str:
+    """Render single MCP documentation file that covers all definitions."""
+    lines = [
+        "# MCP Definitions",
+        "",
+        "System-generated. Do not edit directly.",
+        "",
+        "Each section below documents an MCP function exposed by MemoryAtlas.",
+        "",
+    ]
+    for name, spec in sorted(definitions.items()):
+        lines.extend(
+            [
+                f"## {name}",
+                "",
+                "### Signature",
+                f"`{spec['signature']}`",
+                "",
+                "### Summary",
+                spec["summary"],
+                "",
+                "### Inputs",
+            ]
+        )
+        inputs = spec.get("inputs", [])
+        if inputs:
+            lines.extend(f"- {item}" for item in inputs)
+        else:
+            lines.append("- (none)")
+        lines.extend(["", "### Outputs"])
+        outputs = spec.get("outputs", [])
+        if outputs:
+            lines.extend(f"- {item}" for item in outputs)
+        else:
+            lines.append("- (none)")
+        behavior = spec.get("behavior", [])
+        if behavior:
+            lines.extend(["", "### Behavior"])
+            lines.extend(f"- {item}" for item in behavior)
+        lines.append("")  # blank line between sections
+    lines.extend(render_mcp_connection_guide())
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_mcp_connection_guide() -> List[str]:
+    """Render connection guide and templates overview."""
+    return [
+        "## Connection Guide",
+        "",
+        "### Entry Points",
+        "- STDIO: `python .memory/00_SYSTEM/mcp/mcp_server.py --stdio`",
+        "- HTTP: `python .memory/00_SYSTEM/mcp/mcp_server.py --http --host 127.0.0.1 --port 8765`",
+        "- Module: `python -m memoryatlas_mcp --stdio`",
+        "",
+        "### Client Config Templates",
+        "- `claude_code.mcp.json` (STDIO)",
+        "- `codex.mcp.json` (STDIO)",
+        "- `gemini_cli.mcp.json` (STDIO)",
+        "",
+        "### Notes",
+        "- Clients usually require one-time server registration.",
+        "- HTTP mode may require authentication and is optional.",
+        "",
+    ]
+
+
+def update_mcp_definitions(root: str, dry_run: bool = False) -> None:
+    """Generate MCP definition documentation under 00_SYSTEM/mcp/."""
+    dir_path = os.path.join(root, "00_SYSTEM", "mcp")
+    os.makedirs(dir_path, exist_ok=True)
+    rel_path = os.path.join("00_SYSTEM", "mcp", "README.md")
+    path = os.path.join(root, rel_path)
+    content = render_mcp_collection(MCP_DEFINITIONS)
+    if dry_run:
+        print(f"  - Would update mcp: {rel_path}")
+        return
+    write_file(path, content)
+    print(f"  * Updated mcp: {rel_path}")
+    update_mcp_server_entrypoint(root, dry_run=dry_run)
+    update_mcp_client_templates(root, dry_run=dry_run)
+
+
+def update_mcp_server_entrypoint(root: str, dry_run: bool = False) -> None:
+    """Write MCP server entrypoint under 00_SYSTEM/mcp/."""
+    rel_path = os.path.join("00_SYSTEM", "mcp", "mcp_server.py")
+    path = os.path.join(root, rel_path)
+    content = render_mcp_server_entrypoint()
+    if dry_run:
+        print(f"  - Would update mcp: {rel_path}")
+        return
+    write_file(path, content)
+    print(f"  * Updated mcp: {rel_path}")
+
+
+def render_mcp_server_entrypoint() -> str:
+    return (
+        "#!/usr/bin/env python3\n"
+        "from __future__ import annotations\n"
+        "import argparse\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "\n"
+        "ROOT = Path(__file__).resolve().parents[3]\n"
+        "SRC = ROOT / \"src\"\n"
+        "sys.path.insert(0, str(SRC))\n"
+        "\n"
+        "try:\n"
+        "    from mcp_server import run_server\n"
+        "except Exception as exc:\n"
+        "    print(f\"Failed to import MCP server: {exc}\")\n"
+        "    sys.exit(1)\n"
+        "\n"
+        "def main() -> int:\n"
+        "    parser = argparse.ArgumentParser(description=\"MemoryAtlas MCP Server\")\n"
+        "    parser.add_argument(\"--stdio\", action=\"store_true\", help=\"Run in STDIO mode\")\n"
+        "    parser.add_argument(\"--http\", action=\"store_true\", help=\"Run in HTTP mode\")\n"
+        "    parser.add_argument(\"--host\", default=\"127.0.0.1\", help=\"HTTP host\")\n"
+        "    parser.add_argument(\"--port\", type=int, default=8765, help=\"HTTP port\")\n"
+        "    args = parser.parse_args()\n"
+        "    mode = \"http\" if args.http else \"stdio\"\n"
+        "    run_server(mode=mode, host=args.host, port=args.port)\n"
+        "    return 0\n"
+        "\n"
+        "if __name__ == \"__main__\":\n"
+        "    raise SystemExit(main())\n"
+    )
+
+
+def update_mcp_client_templates(root: str, dry_run: bool = False) -> None:
+    """Write MCP client config templates."""
+    templates = {
+        "claude_code.mcp.json": render_mcp_template_stdio("memoryatlas"),
+        "codex.mcp.json": render_mcp_template_stdio("memoryatlas"),
+        "gemini_cli.mcp.json": render_mcp_template_stdio("memoryatlas"),
+    }
+    for name, content in templates.items():
+        rel_path = os.path.join("00_SYSTEM", "mcp", name)
+        path = os.path.join(root, rel_path)
+        if dry_run:
+            print(f"  - Would update mcp: {rel_path}")
+            continue
+        write_file(path, content)
+        print(f"  * Updated mcp: {rel_path}")
+
+
+def render_mcp_template_stdio(server_name: str) -> str:
+    return (
+        "{\n"
+        f"  \"mcpServers\": {{\n"
+        f"    \"{server_name}\": {{\n"
+        "      \"command\": \"python\",\n"
+        "      \"args\": [\".memory/00_SYSTEM/mcp/mcp_server.py\", \"--stdio\"],\n"
+        "      \"env\": {}\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
 
 def update_tooling(root: str, dry_run: bool = False) -> None:
     """Copy current script to system scripts directory."""

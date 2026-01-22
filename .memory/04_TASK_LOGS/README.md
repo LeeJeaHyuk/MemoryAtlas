@@ -1,6 +1,6 @@
 # Task Logs (Execution Layer)
 
-> **Template-Version**: 3.0
+> **Template-Version**: 3.1
 >
 > 실행 기록을 관리합니다.
 
@@ -39,3 +39,9 @@ Examples:
 - `RUN-REQ-AUTH-001-step-01.md`
 - `RUN-REQ-AUTH-001-step-02.md`
 - `RUN-RULE-DATA-001-step-01.md`
+
+## Scope for Partial Updates
+
+When only part of a REQ changes, define In Scope / Out of Scope in the RUN.
+Keep the REQ as the full contract; use DISC or a new Draft REQ for pending work.
+

@@ -5,6 +5,7 @@ from utils.fs import (
     create_missing_docs,
     ensure_structure,
     read_version,
+    update_mcp_definitions,
     update_readme_files,
     update_system_templates,
     update_tooling,
@@ -40,6 +41,7 @@ def init_or_update(dry_run: bool = False, force_migrate: bool = False) -> None:
     create_missing_docs(ROOT_DIR, dry_run=dry_run)
     update_system_templates(ROOT_DIR, dry_run=dry_run)
     update_readme_files(ROOT_DIR, dry_run=dry_run)
+    update_mcp_definitions(ROOT_DIR, dry_run=dry_run)
     update_tooling(ROOT_DIR, dry_run=dry_run)
 
     if installed_version != CURRENT_VERSION:

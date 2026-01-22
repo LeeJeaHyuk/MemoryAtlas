@@ -1,6 +1,6 @@
 # Active Tasks (Execution)
 
-> **Template-Version**: 3.0
+> **Template-Version**: 3.1
 
 ## RUN Document Template
 
@@ -12,13 +12,23 @@
 > **Started**: YYYY-MM-DD
 > **Input**: REQ-XXX-001, RULE-YYY-001, 01_CONVENTIONS.md
 > **Verification**: (성공 조건 - 한 줄 요약)
-> **Template-Version**: 3.0
+> **Template-Version**: 3.1
 
 ---
 
 ## Objective
 
 (이 단계의 목표 - 하나만)
+
+## Scope
+
+### In Scope
+
+- (List the parts of the REQ you will change)
+
+### Out of Scope
+
+- (Explicitly state what will not be touched this run)
 
 ## Steps
 
@@ -36,6 +46,12 @@
 ### Success Condition
 (성공 조건 상세)
 
+## Evidence (Implementation Proof)
+
+- Tests: (what passed)
+- Commands: (what was executed)
+- Code references: (files/functions showing current behavior)
+
 ## Output
 
 (생성/수정된 파일 목록)
@@ -51,3 +67,5 @@
 3. **Verification 명시**: 성공 조건 + Self-Check 체크리스트
 4. **Output 기록**: 생성/수정 파일 목록
 5. **Self-Check 필수**: 테스트, Boundary, Spec 일치 확인
+6. **Scope ??**: In Scope / Out of Scope? ?? ?? ??
+7. **Evidence ??**: ???/???/?? ?? ??

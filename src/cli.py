@@ -91,6 +91,7 @@ from core.checks import (
     doctor,
     lint_metadata,
 )
+from core.automation import Automator
 from core.config import CURRENT_VERSION, ROOT_DIR
 from core.status import status_report
 from core.update import init_or_update
@@ -107,6 +108,23 @@ Examples:
   python memory_manager.py --status     # Show task summary
   python memory_manager.py --dry-run    # Preview changes
         """
+    )
+
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["apply-req"],
+        help="Optional automation command (apply-req).",
+    )
+    parser.add_argument(
+        "--id",
+        dest="command_req_id",
+        help="REQ ID for automation commands such as apply-req.",
+    )
+    parser.add_argument(
+        "--no-spec",
+        action="store_true",
+        help="Skip spec draft creation when running apply-req.",
     )
 
     update_group = parser.add_argument_group("Update Commands")
@@ -197,6 +215,27 @@ Examples:
 
 def main() -> int:
     args = parse_args()
+
+    if args.command == "apply-req":
+        req_id = args.command_req_id
+        if not req_id:
+            print("Error: --id is required when running apply-req")
+            return 1
+        automator = Automator()
+        report = automator.apply_req(
+            req_id, dry_run=args.dry_run, create_spec=not args.no_spec
+        )
+        if report["status"] == "failed":
+            print("apply-req failed:")
+            for err in report["errors"]:
+                print(f"  - {err}")
+            if report["disc"]:
+                print(f"  DISC created: {report['disc']}")
+            return 1
+        print(f"apply-req {report['status']}:")
+        for name, path in report["artifacts"].items():
+            print(f"  {name}: {path}")
+        return 0
 
     # Bootstrap mode: create AI kick-off meeting files and exit
     if args.bootstrap:

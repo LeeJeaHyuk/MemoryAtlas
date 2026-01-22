@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "memoryatlas": {
+      "command": "python",
+      "args": [".memory/00_SYSTEM/mcp/mcp_server.py", "--stdio"],
+      "env": {}
+    }
+  }
+}

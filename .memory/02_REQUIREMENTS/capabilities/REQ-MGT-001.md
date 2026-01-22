@@ -26,7 +26,7 @@ MemoryAtlas 시스템을 초기화하거나 최신 버전으로 업데이트한�
 ---
 
 ## Output
-
+ - MCP definitions: `.memory/00_SYSTEM/mcp/README.md` auto-generated
 - Console output: 생성/업데이트된 파일 및 폴더 로그
 - File system changes: `.memory/` 구조 생성 및 업데이트
 
@@ -41,7 +41,8 @@ MemoryAtlas 시스템을 초기화하거나 최신 버전으로 업데이트한�
 4. 누락된 문서 생성 (`create_missing_docs()`)
 5. 시스템 템플릿 업데이트 (`update_system_templates()`)
 6. 도구 스크립트 업데이트 (`update_tooling()`)
-7. 버전 파일 갱신 (`write_version()`)
+7. MCP documentation updated (`00_SYSTEM/mcp/README.md`)
+8. 버전 파일 갱신 (`write_version()`)
 
 ---
 
@@ -52,6 +53,8 @@ MemoryAtlas 시스템을 초기화하거나 최신 버전으로 업데이트한�
 - [x] 필수 디렉토리 14개 자동 생성
 - [x] 필수 파일(`00_INDEX.md`, `GOALS.md` 등) 생성
 - [x] `memory_manager.py`를 `00_SYSTEM/scripts/`로 복사
+- [x] `00_SYSTEM/mcp/README.md` contains the generated MCP definitions
+- [x] `00_SYSTEM/mcp/README.md` contains auto-generated MCP definitions
 - [x] `VERSION` 파일 업데이트
 - [x] Dry Run 모드 지원
 

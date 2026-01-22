@@ -1,8 +1,8 @@
 # Project Memory Index
 
 > Entry point for Memory-Driven Development in this repo.
-> **Version**: 3.0.0 (Smart Spec Edition)
-> **Template Version**: 3.0
+> **Version**: 3.1.0 (Smart Spec Edition)
+> **Template Version**: 3.1
 
 ## Capabilities & Invariants Model (v3.0)
 
