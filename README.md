@@ -1,127 +1,176 @@
-# MemoryAtlas
+﻿# MemoryAtlas
 
-MemoryAtlas is a memory-driven development toolkit that keeps project context,
-requirements, and execution logs aligned for humans and LLMs.
+> Document-Driven Development with MCP (Intake -> Plan -> Execute)
 
-## What this repo contains
+[한국어](README.md) | [English](README.en.md)
 
-- A CLI tool (`memory_manager.py`) built from `src/` via `build.py`.
-- A `.memory/` workspace that stores the project knowledge base.
-- An MCP automation server and client templates under `.memory/00_SYSTEM/mcp/`.
-- A validation engine that enforces the MemoryAtlas authority model.
 
-## Core capabilities (from `.memory/02_REQUIREMENTS/capabilities/`)
+## 0. 이 문서는 무엇인가?
 
-- Initialize or update the `.memory/` structure.
-- Bootstrap project context for AI-assisted setup (`--bootstrap`).
-- Validate structure, metadata, links, requirements, and RUN logs.
-- Generate a status report for active tasks (`--status`).
-- Reverse-engineer focused code areas into prompts (`--reverse`, draft).
-- Build a single-file CLI with Stickytape (`build.py`).
-- Automate REQ -> RUN creation via CLI and MCP tools.
+이 문서는 MemoryAtlas를 처음 접하는 사용자가 시스템의 핵심 철학을 빠르게 이해하도록 돕는 공식 가이드입니다.
+단순 설치 안내를 넘어, 시스템의 **Mental Model**과 **협업 Protocol**을 명확히 정의합니다.
 
-## Non-negotiable invariants (from `.memory/02_REQUIREMENTS/invariants/`)
+### 이 문서가 설명하는 것
 
-- Required `.memory/` directory layout (`RULE-DIR-001`).
-- Three-way ID consistency: filename, header, metadata (`RULE-VALID-001`).
-- Strict metadata header fields by document type (`RULE-META-001`).
-- Must-Read field allows only RULE/ADR IDs (`RULE-MUST-001`).
-- Link validation rules for documentation (`RULE-LINK-001`).
-- Versioning policy for manager vs template (`RULE-VER-001`).
+- 이 프로젝트를 만든 이유 (Why)
+- 문서와 LLM의 역할 분담 (R&R)
+- 전체 개발 프로세스 (Workflow)
+- MCP 기반 자동화 흐름 (Automation)
 
-See the authoritative docs in `.memory/00_INDEX.md` and `.memory/02_REQUIREMENTS/`.
+> 핵심 요약: 사람 중심의 문서를 권위로 삼고, LLM은 계획-구현-정리를 자동화합니다.
 
-## Quick start
+## 1. 프로젝트를 만든 이유 (Why)
 
-```bash
-# Initialize or update .memory
-python memory_manager.py
+### 1.1 기본 전제
 
-# Full system validation
-python memory_manager.py --doctor
+모든 필요 문서가 완벽히 존재한다면, LLM은 프로젝트를 자동으로 완성할 수 있습니다.
+단, 그 문서는 다음 조건을 만족해야 합니다.
 
-# Show active task summary
-python memory_manager.py --status
+- 사람이 읽고 이해할 수 있어야 한다
+- 여러 사람/여러 AI가 봐도 같은 의미로 해석되어야 한다
+- 필요하면 사람이 직접 수정할 수 있어야 한다
 
-# Create AI bootstrap prompts
-python memory_manager.py --bootstrap
+### 1.2 MemoryAtlas의 선택
 
-# Preview changes without writing
-python memory_manager.py --dry-run
+우리는 코드를 직접 제어하려 애쓰지 않습니다.
+대신 **문서를 권위(Authority)**로 삼고, 코드는 문서에서 파생되는 **결과물(Artifact)**로 취급합니다.
 
-# Create a RUN from a REQ (optionally skip spec draft)
-python memory_manager.py apply-req --id REQ-EXAMPLE-001
-python memory_manager.py apply-req --id REQ-EXAMPLE-001 --dry-run --no-spec
+"문서를 잘 쓰면, 코드는 따라온다."
 
-# Generate MCP bootstrap prompt and templates
-python memory_manager.py --bootstrap-mcp --target claude_code --os windows
+## 2. 기본 사고 프로세스 (Conceptual Flow)
+
+사람 기준의 이상적인 개발 흐름을 MemoryAtlas가 시스템화합니다.
+
+- CQ(Competency Questions): "이 기능이 해결해야 할 질문은 무엇인가?"
+- Intake: 정리되지 않은 생각/메모를 Brief로 변환
+- Plan: Brief를 실행 계획(RUN)으로 고정
+- Execute: RUN을 기준으로 구현
+- Archive: 완료 기록 보관
+
+## 3. 두 가지 사용 방식
+
+### 3.1 수동 프로세스 (MCP 없이)
+
+문서만으로도 프로젝트를 운영할 수 있습니다. 다만 **"Intake" 요청은 MCP 도구로만 수행**해야 합니다.
+MCP가 불가능하면 먼저 알리고 MCP를 복구한 뒤 진행합니다.
+
+- REQ 문서 직접 작성
+- RUN 문서 작성
+- 구현
+- Archive 이동
+
+### 3.2 MCP 기반 프로세스 (권장, Intake 필수)
+
+MCP는 **사용자가 확인해야 할 지점만 남기고 나머지를 자동화**합니다.
+
+Step 1. Intake (생각 정리)
+- User: "이 기능 필요해. Intake 해줘."
+- System: BRIEF 생성
+- 사용자 할 일: BRIEF 검토
+
+Step 2. Plan (계획 고정)
+- User: "이 Brief 기준으로 Plan 만들어."
+- System: REQ 생성/수정 + RUN 생성
+- 사용자 할 일: RUN 검토
+
+Step 3. Execute (실행)
+- User: "Run 해."
+- System: 구현 -> 자동 검증(--doctor) -> Archive 이동
+- 사용자 할 일: 실패 시에만 개입
+
+## 4. 사용자가 확인해야 하는 지점 (Touchpoints)
+
+핵심 원칙: 사용자는 의사결정만 하고, 실행/정리/검증은 LLM이 담당합니다.
+
+| 단계 | 문서(Artifact) | 사용자 확인 | 
+|------|----------------|-------------|
+| Intake | Change Brief | 필수 |
+| Plan | RUN 문서 | 필수 |
+| Execute | 코드/결과물 | 실패 시에만 |
+
+## 5. 공식 3-Phase Workflow (권위 모델)
+
+```mermaid
+graph LR
+    A[User Idea] -->|Intake| B(Change Brief)
+    B -->|Plan| C{RUN Plan}
+    C -->|Execute| D[Code Implementation]
+    D -->|Success| E[Archive]
+    D -->|Fail| F[DISC Report]
 ```
 
-## Reverse engineering (draft)
+### Phase 1. Intake (요구 수집 / 정제)
 
-Generate a focused prompt for partial code analysis:
+- 목표: 흩어진 요구사항과 논의를 하나의 Change Brief로 압축
+- 입력: 사용자 자연어, 기존 DISC, 채팅 로그
+- 산출물: `02_REQUIREMENTS/discussions/briefs/BRIEF-*.md`
+- 규칙: **Intake는 MCP 도구로만 수행**하며, 불가 시 사용자에게 알리고 MCP를 먼저 복구
+- Affected Artifacts 규칙: 경로 또는 링크로 표기 (예: `02_REQUIREMENTS/capabilities/REQ-*.md`)
 
-```bash
-python memory_manager.py --reverse --focus src/core
-```
+### Phase 2. Plan (실행 계획 고정)
 
-This creates `.memory/00_REVERSE_PROMPT.md`.
+- 목표: Brief를 기준으로 실행 단위(RUN)를 확정
+- 행동:
+  - REQ는 `02_REQUIREMENTS/capabilities/REQ-*.md`에 생성/수정
+  - RUN 문서 생성 (Brief를 Must-Read로 링크)
+- 산출물: `04_TASK_LOGS/active/RUN-*.md`
+- run_id는 시스템이 생성하며, `plan_from_brief` 반환값을 사용
 
-## MCP automation
+### Phase 3. Execute (구현 / 검증 / 종료)
 
-MCP tool definitions and client templates live in `.memory/00_SYSTEM/mcp/`.
-See `.memory/00_SYSTEM/mcp/README.md` for the full list (apply_req, req_status, run_report, etc.).
+- 목표: RUN 계획에 따라 구현 후 검증/정리
+- 행동:
+  - 구현 완료 후 `finalize_run(run_id)` 호출
+  - `--doctor` 검증 (성공 시 Archive / 실패 시 DISC 생성)
+- 산출물: `04_TASK_LOGS/archive/RUN-*.md`
 
-```bash
-# STDIO server (local)
-python .memory/00_SYSTEM/mcp/mcp_server.py --stdio
+## 6. MCP 도구 체계
 
-# Module entrypoint
-python -m memoryatlas_mcp --stdio
-```
+Primary Tools (대부분의 작업은 아래 3개로 충분합니다)
 
-## .memory layout (v3 Capabilities & Invariants)
+| 도구 | 역할 | 트리거 예시 |
+|------|------|-------------|
+| `intake(...)` | 요구 수집 -> Brief 생성 | "이 기능 추가해줘" |
+| `plan_from_brief(...)` | Brief 승인 -> RUN 생성 | "계획 확정해" |
+| `finalize_run(...)` | 검증 후 종료/아카이브 | "Run" |
 
-```
-.memory/
-  00_SYSTEM/                  # System-managed rules, scripts, and MCP entrypoints
-  01_PROJECT_CONTEXT/         # Project goals and conventions
-  02_REQUIREMENTS/
-    capabilities/             # REQ-* (what the system must do)
-    invariants/               # RULE-* (non-negotiable rules)
-    discussions/              # DISC-* (reference-only discussions)
-  03_TECH_SPECS/              # ADRs and technical specs (how)
-  04_TASK_LOGS/
-    active/                   # RUN-* execution steps
-    archive/                  # Completed task logs
-  98_KNOWLEDGE/               # Troubleshooting and shared knowledge
-  99_ARCHIVE/                 # Deprecated or legacy content
-```
+Note: `finalize_run`에는 **plan_from_brief가 반환한 run_id**를 사용합니다.
 
-## Common validation commands
+Auxiliary Tools
 
-```bash
-python memory_manager.py --check     # Structure
-python memory_manager.py --lint      # Metadata headers
-python memory_manager.py --links     # Links
-python memory_manager.py --req       # REQ/RULE validation
-python memory_manager.py --runs      # RUN validation
-python memory_manager.py --mcp-check # MCP bootstrap outputs
-```
+- `validate(scope)`: 수동 검증 (lint, links, doctor)
+- `req_status(req_id)`: 요구사항 상태 조회
+- `create_disc_from_failure(context)`: 실패 분석 문서 생성
 
-## Build and development
+## 7. CQ 기반 문서 작성 원칙
 
-- Python 3.8+ is required.
-- `build.py` bundles `src/` into `memory_manager.py`.
-- Install Stickytape only when building:
+CQ(Competency Question) 기반 문서 입력은 형식이 자유롭습니다.
+메모, 대화 로그, 음성 기록 텍스트 등 무엇이든 Intake로 구조화됩니다.
 
-```bash
-pip install stickytape
-python build.py
-```
+"정리 안 된 생각 -> Intake"가 허용되는 시스템입니다.
 
-## Where to start
+## 8. 신규 사용자 온보딩
 
-- `.memory/00_INDEX.md` for the documentation map and reading priority.
-- `.memory/01_PROJECT_CONTEXT/00_GOALS.md` for project identity.
-- `.memory/01_PROJECT_CONTEXT/01_CONVENTIONS.md` for working rules.
+### 8.1 첫 진입 시
+
+- 이 문서를 읽는다
+- 곧바로 실행해본다: "필요한 기능 생각 -> Intake 해줘"
+
+### 8.2 기억해야 할 문장 2개
+
+- 생각이 생기면? Intake
+- 실행하려면? Plan -> Run
+
+## 9. 최종 요약
+
+MemoryAtlas는 문서를 많이 쓰게 하는 시스템이 아닙니다.
+사용자가 생각만 하면, LLM이 문서/계획/구현/정리를 대신합니다.
+
+그리고 그 모든 과정의 경계는 두 문서로 관리됩니다.
+
+- Change Brief: 생각에서 실행으로 넘어가는 관문
+- RUN: 실행의 단일 기준
+
+
+
+

@@ -30,7 +30,9 @@
       "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python memory_manager.py update\")",
       "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python memory_manager.py --update\")",
       "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python -c \"\"import sys; sys.path.insert\\(0, ''src''\\); from mcp_server import apply_req, continue_req, finalize_run; print\\(''All MCP functions imported successfully''\\)\"\"\")",
-      "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python -c \"\"import sys; sys.path.insert\\(0, ''src''\\); from core.state import StateManager, get_next_action, list_active_states; print\\(''State module imported successfully''\\)\"\"\")"
+      "Bash(powershell.exe -Command \"cd ''c:\\\\Users\\\\Hong\\\\Workspace\\\\05_memory\\\\memory''; python -c \"\"import sys; sys.path.insert\\(0, ''src''\\); from core.state import StateManager, get_next_action, list_active_states; print\\(''State module imported successfully''\\)\"\"\")",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__find_file"
     ]
   }
 }

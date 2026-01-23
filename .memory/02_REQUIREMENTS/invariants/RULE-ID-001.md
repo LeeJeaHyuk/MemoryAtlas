@@ -3,7 +3,7 @@
 > **ID**: RULE-ID-001
 > **Domain**: VALIDATION
 > **Priority**: Critical
-> **Last Updated**: 2026-01-20
+> **Last Updated**: 2026-01-23
 > **Must-Read**: RULE-DIR-001
 > **Template-Version**: 2.4
 
@@ -26,6 +26,7 @@ RULE_ID_PATTERN = re.compile(r"^RULE-([A-Z]+)-(\d{3})$")
 ADR_ID_PATTERN = re.compile(r"^ADR-(\d{3})$")
 DISC_ID_PATTERN = re.compile(r"^DISC-([A-Z]+)-(\d{3})$")
 RUN_ID_PATTERN = re.compile(r"^RUN-(REQ|RULE)-([A-Z]+)-(\d{3})-step-(\d{2})$")
+BRIEF_ID_PATTERN = re.compile(r"^BRIEF-([A-Z]+)-(\d{8})-(\d{2})$")
 ```
 
 이 규칙이 없으면 문서 ID 검증(3-way consistency)이 불가능하고, 자동화된 링크 검증이 작동하지 않는다.
@@ -36,16 +37,18 @@ RUN_ID_PATTERN = re.compile(r"^RUN-(REQ|RULE)-([A-Z]+)-(\d{3})-step-(\d{2})$")
 
 | Document Type | Pattern | Example | Location |
 |---------------|---------|---------|----------|
-| **REQ** (Feature) | `REQ-[DOMAIN]-[NNN]` | `REQ-AUTH-001` | `02_REQUIREMENTS/features/` |
-| **RULE** (Business Rule) | `RULE-[DOMAIN]-[NNN]` | `RULE-DATA-001` | `02_REQUIREMENTS/business_rules/` |
+| **REQ** (Feature) | `REQ-[DOMAIN]-[NNN]` | `REQ-AUTH-001` | `02_REQUIREMENTS/capabilities/` |
+| **RULE** (Business Rule) | `RULE-[DOMAIN]-[NNN]` | `RULE-DATA-001` | `02_REQUIREMENTS/invariants/` |
 | **ADR** (Architecture Decision) | `ADR-[NNN]` | `ADR-001` | `03_TECH_SPECS/decisions/` |
 | **DISC** (Discussion) | `DISC-[DOMAIN]-[NNN]` | `DISC-AUTH-001` | `02_REQUIREMENTS/discussions/` |
+| **BRIEF** (Change Brief) | `BRIEF-[DOMAIN]-[YYYYMMDD]-[NN]` | `BRIEF-MCP-20260123-01` | `02_REQUIREMENTS/discussions/briefs/` |
 | **RUN** (Execution Log) | `RUN-(REQ\|RULE)-[DOMAIN]-[NNN]-step-[NN]` | `RUN-REQ-AUTH-001-step-01` | `04_TASK_LOGS/active/` |
 
 ### Format Rules:
-- **[DOMAIN]**: 대문자 영문자만 (예: `AUTH`, `DATA`, `PAYMENT`)
+- **[DOMAIN]**: 대문자 영문자만 (예: `AUTH`, `DATA`, `PAYMENT`, `MCP`)
 - **[NNN]**: 3자리 숫자 (001~999)
-- **[NN]**: 2자리 숫자 (RUN step번호, 01~99)
+- **[NN]**: 2자리 숫자 (RUN step번호 또는 BRIEF 순번, 01~99)
+- **[YYYYMMDD]**: 8자리 날짜 (예: `20260123`)
 
 ---
 
@@ -58,6 +61,7 @@ REQ-AUTH-001.md
 RULE-SEC-001.md
 ADR-003.md
 DISC-PAYMENT-001.md
+BRIEF-MCP-20260123-01.md
 RUN-REQ-AUTH-001-step-01.md
 ```
 
@@ -67,6 +71,7 @@ RUN-REQ-AUTH-001-step-01.md
 REQ-auth-001.md           # 소문자 도메인 금지
 RULE-DATA-1.md            # 3자리 숫자 필수 (001)
 ADR-SEC-001.md            # ADR은 도메인 없음 (ADR-001)
+BRIEF-MCP-2026-01.md      # 날짜는 8자리 필수 (YYYYMMDD)
 RUN-AUTH-001.md           # RUN은 REQ/RULE 명시 필수
 REQ-AUTH-1000.md          # 3자리 초과 금지
 ```

@@ -31,6 +31,8 @@ def get_doc_type(path: str) -> str:
         return "discussions"
     if "active" in path and "RUN-" in os.path.basename(path):
         return "runs"
+    if "briefs" in path or "BRIEF-" in os.path.basename(path):
+        return "briefs"
     return "default"
 
 def check_structure(root: str) -> int:
@@ -201,6 +203,8 @@ def extract_id_from_filename(filename: str) -> Optional[str]:
     if DISC_ID_PATTERN.match(name):
         return name
     if RUN_ID_PATTERN.match(name):
+        return name
+    if BRIEF_ID_PATTERN.match(name):
         return name
     return None
 
@@ -546,6 +550,58 @@ def check_discussions(root: str) -> int:
     print(f"Discussion check: {issues} issue(s)")
     return issues
 
+def check_briefs(root: str) -> int:
+    """Validate BRIEF documents (3-way ID consistency)."""
+    issues = 0
+    # Scan in BRIEF_SCAN_DIRS or fallback/specific dir if needed
+    # config.py defines BRIEF_SCAN_DIRS = ["04_TASK_LOGS/active"] usually,
+    # or wherever briefs are stored. Adjust scanning logic as appropriate.
+    for path in iter_md_files(root, BRIEF_SCAN_DIRS):
+        filename = os.path.basename(path)
+        if not filename.startswith("BRIEF-"):
+            continue
+
+        text = read_text(path)
+        rel_path = os.path.relpath(path, root)
+
+        meta_id = extract_meta_id(text)
+        filename_id = extract_id_from_filename(filename)
+        header_ids = extract_header_ids(text, patterns=[BRIEF_HEADER_RE])
+
+        # 1. **ID**: metadata existence
+        if meta_id is None:
+            print(f"! Missing **ID**: metadata in {rel_path}")
+            issues += 1
+            if filename_id:
+                meta_id = filename_id
+
+        # 2. Filename format (already checked partly by startswith, but strict check here)
+        if filename_id is None:
+            print(f"! Invalid BRIEF filename format in {rel_path}")
+            issues += 1
+
+        # 3. Filename vs Meta ID
+        if meta_id and filename_id and meta_id != filename_id:
+            print(f"! Filename does not match **ID**: in {rel_path}")
+            print(f"    -> **ID**: {meta_id}")
+            print(f"    -> Filename: {filename_id}")
+            issues += 1
+
+        # 4. Header vs Meta ID
+        if meta_id and header_ids:
+            if meta_id not in header_ids:
+                print(f"! Header does not match **ID**: in {rel_path}")
+                print(f"    -> **ID**: {meta_id}")
+                print(f"    -> Header(s): {', '.join(header_ids)}")
+                issues += 1
+        elif meta_id and not header_ids:
+            print(f"! Missing header with ID in {rel_path}")
+            print(f"    -> Fix: Add header # [{meta_id}] Brief Title")
+            issues += 1
+
+    print(f"Brief check: {issues} issue(s)")
+    return issues
+
 def doctor(root: str, allow_absolute_links: bool = False) -> int:
     """Run all checks at once."""
     print("\n" + "=" * 60)
@@ -554,38 +610,39 @@ def doctor(root: str, allow_absolute_links: bool = False) -> int:
 
     total_issues = 0
 
-    print("\n[1/6] Structure Check")
+    print("\n[1/7] Structure Check")
     print("-" * 40)
     total_issues += check_structure(root)
 
-    print("\n[2/6] Metadata Lint")
+    print("\n[2/7] Metadata Lint")
     print("-" * 40)
     total_issues += lint_metadata(root)
 
-    print("\n[3/6] Link Validation")
+    print("\n[3/7] Link Validation")
     print("-" * 40)
     total_issues += check_links(root, allow_absolute=allow_absolute_links)
 
-    print("\n[4/6] Requirement Validation (Authority)")
+    print("\n[4/7] Requirement Validation (Authority)")
     print("-" * 40)
     total_issues += check_requirements(root)
 
-    print("\n[5/6] RUN Document Validation (Execution)")
+    print("\n[5/7] RUN Document Validation (Execution)")
     print("-" * 40)
     total_issues += check_runs(root)
 
-    print("\n[6/6] Discussion Validation (Reference)")
+    print("\n[6/7] Discussion Validation (Reference)")
     print("-" * 40)
     total_issues += check_discussions(root)
+
+    print("\n[7/7] Brief Validation")
+    print("-" * 40)
+    total_issues += check_briefs(root)
 
     print("\n" + "=" * 60)
     if total_issues == 0:
         print("  [OK] All checks passed!")
     else:
         print(f"  [!] Total issues found: {total_issues}")
-    print("=" * 60)
-
-    return total_issues
 
 
 # ============================================================================

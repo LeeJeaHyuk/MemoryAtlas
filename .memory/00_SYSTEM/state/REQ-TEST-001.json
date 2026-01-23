@@ -1,0 +1,36 @@
+{
+  "req_id": "REQ-TEST-001",
+  "run_id": null,
+  "state": "FAILED",
+  "created_at": "2026-01-23T09:56:35.629446",
+  "updated_at": "2026-01-23T09:56:35.668608",
+  "history": [
+    {
+      "from": "IDLE",
+      "to": "VALIDATING",
+      "timestamp": "2026-01-23T09:56:35.635252",
+      "run_id": null
+    },
+    {
+      "from": "VALIDATING",
+      "to": "FAILED",
+      "timestamp": "2026-01-23T09:56:35.668608",
+      "run_id": null
+    }
+  ],
+  "last_error": {
+    "errors": [
+      {
+        "type": "req_validation",
+        "message": "REQ not found: REQ-TEST-001",
+        "retry_from": "apply_req"
+      },
+      {
+        "type": "requirements",
+        "message": "1 requirement issues found",
+        "retry_from": "apply_req"
+      }
+    ]
+  },
+  "disc_path": null
+}

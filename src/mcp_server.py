@@ -427,7 +427,37 @@ def create_run(req_id: str) -> Dict[str, Any]:
     if not automator.validate_req(req_id):
         raise ValueError(f"REQ validation failed: {automator.last_error}")
     run_path = automator.create_run(req_id)
-    return {"run_path": str(run_path)}
+@mcp.tool()
+def intake(description: str, domain: str = "GEN") -> Dict[str, Any]:
+    """
+    Intake a new user request and create a BRIEF document.
+    
+    Args:
+        description: The user's raw request or description.
+        domain: Domain code (default "GEN").
+    
+    Returns:
+        Dict with brief_path.
+    """
+    automator = Automator()
+    path = automator.intake(description, domain)
+    return {"brief_path": str(path)}
+
+
+@mcp.tool()
+def plan_from_brief(brief_id: str) -> Dict[str, Any]:
+    """
+    Create a RUN document from an existing BRIEF.
+    
+    Args:
+        brief_id: The ID of the Brief (e.g., "BRIEF-GEN-001").
+    
+    Returns:
+        Dict with run_id and run_path.
+    """
+    automator = Automator()
+    path = automator.plan_from_brief(brief_id)
+    return {"run_id": path.stem, "run_path": str(path)}
 
 
 @mcp.tool()
@@ -698,10 +728,18 @@ def finalize_run(run_id: str, success: Optional[bool] = True) -> Dict[str, Any]:
         STATE_READY_TO_FINALIZE, STATE_COMPLETED, STATE_FAILED,
     )
     
-    # Extract req_id from run_id (RUN-REQ-XXX-NNN-step-NN -> REQ-XXX-NNN)
+    # Extract req_id/brief_id from run_id
+    # Formats:
+    #   RUN-REQ-XXX-NNN-step-NN -> REQ-XXX-NNN
+    #   RUN-BRIEF-XXX-NNN-step-NN -> BRIEF-XXX-NNN
     parts = run_id.split("-")
     if len(parts) >= 4 and parts[0] == "RUN":
-        req_id = "-".join(parts[1:4])  # REQ-XXX-NNN
+        if parts[1] == "REQ":
+             req_id = "-".join(parts[1:4])  # REQ-XXX-NNN
+        elif parts[1] == "BRIEF":
+             req_id = "-".join(parts[1:4])  # BRIEF-XXX-NNN (treated as req_id for notification purpose)
+        else:
+             req_id = None
     else:
         req_id = None
     

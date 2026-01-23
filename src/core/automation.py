@@ -4,11 +4,14 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.config import REQ_ID_PATTERN, ROOT_DIR, TEMPLATE_VERSION
 
 META_RE = re.compile(r"> \*\*(.+?)\*\*:\s*(.+)")
+AFFECTED_LINE_RE = re.compile(r"^\s*-\s*(Modify|Create|Delete)\s*:\s*(.+)$", re.I)
+MD_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+
 
 
 class Automator:
@@ -21,6 +24,7 @@ class Automator:
         self.run_dir = self.root / "04_TASK_LOGS" / "active"
         self.archive_dir = self.root / "04_TASK_LOGS" / "archive"
         self.disc_dir = self.root / "02_REQUIREMENTS" / "discussions"
+        self.brief_dir = self.disc_dir / "briefs"
         self.last_error: Optional[str] = None
 
     def _req_path(self, req_id: str) -> Path:
@@ -147,14 +151,14 @@ class Automator:
             f"> **Input**: {req_id}\n"
             "> **Verification**: apply_req pipeline\n"
             f"> **Template-Version**: {TEMPLATE_VERSION}\n\n"
-            "## Objective\n"
+            "## Objective (목표)\n"
             "Deliver the change described in the authority document.\n\n"
-            "## Scope\n"
+            "## Scope (범위)\n"
             "### In Scope\n"
             "- Implementation and validation steps referenced from the REQ.\n\n"
             "### Out of Scope\n"
             "- Anything not already described in the authority doc.\n\n"
-            "## Steps\n"
+            "## Steps (단계)\n"
             "1. Analyze current code.\n"
             "2. Implement the requested behavior.\n"
             "3. Run validation gates (`python memory_manager.py --doctor`).\n\n"
@@ -162,7 +166,7 @@ class Automator:
             "- [ ] Tests\n"
             "- [ ] Boundaries\n"
             "- [ ] Spec reference\n\n"
-            "## Output\n"
+            "## Output (결과물)\n"
             f"- RUN references spec draft: {spec_ref}\n"
         )
 
@@ -252,7 +256,7 @@ class Automator:
         }
 
     def _extract_section(self, text: str, heading: str) -> str:
-        pattern = re.compile(rf"^##\\s+{re.escape(heading)}\\s*$", re.M)
+        pattern = re.compile(rf"^##\\s+{re.escape(heading)}(?:.*)?$", re.M)
         match = pattern.search(text)
         if not match:
             return ""
@@ -264,7 +268,8 @@ class Automator:
     def apply_req(
         self, req_id: str, dry_run: bool = False, create_spec: Optional[object] = "auto"
     ) -> Dict[str, Any]:
-        """Orchestrate the pipeline and return a report."""
+        """Orchestrate the pipeline and return a report. Note: Deprecated in v3.4.0."""
+        print(f"Warning: apply_req() is deprecated. Use plan_from_brief() for new workflows.")
         report: Dict[str, Any] = {
             "req_id": req_id,
             "dry_run": dry_run,
@@ -360,3 +365,214 @@ class Automator:
             lines.append(str(context["logs"]))
         error_log = "\n".join(lines) if lines else "No additional context provided."
         return self.create_disc_from_failure(str(target_id), error_log)
+
+    def _generate_brief_id(self, domain: str = "GEN") -> str:
+        """Generate a unique BRIEF ID."""
+        # Simple incremental logic: scan existing briefs
+        existing = list(self.brief_dir.glob(f"BRIEF-{domain}-*.md"))
+        max_idx = 0
+        for p in existing:
+            match = re.search(r"-(\d{3})\.md$", p.name)
+            if match:
+                idx = int(match.group(1))
+                if idx > max_idx:
+                    max_idx = idx
+        new_idx = max_idx + 1
+        return f"BRIEF-{domain}-{new_idx:03d}"
+
+    def intake(self, description: str, domain: str = "GEN") -> Path:
+        """Create a BRIEF from a user request description."""
+        self.brief_dir.mkdir(parents=True, exist_ok=True)
+        brief_id = self._generate_brief_id(domain)
+        date_str = self._now_date()
+        
+        content = (
+            f"# [{brief_id}] Request: {description[:50]}...\n\n"
+            f"> **ID**: {brief_id}\n"
+            f"> **Date**: {date_str}\n"
+            f"> **Status**: Active\n"
+            f"> **Template-Version**: {TEMPLATE_VERSION}\n\n"
+            "## 1. Intent Summary (의도 요약)\n"
+            f"{description}\n\n"
+            "## 2. Affected Artifacts (영향받는 문서)\n"
+            "- Modify: 02_REQUIREMENTS/capabilities/REQ-XXX-001.md\n"
+            "- Create: 02_REQUIREMENTS/invariants/RULE-YYY-001.md\n\n"
+            "## 3. Proposed Changes (변경 제안)\n"
+            "- [ ] Define scope of change. (변경 범위 정의)\n\n"
+            "## 4. Verification Criteria (검증 기준)\n"
+            "- [ ] Define acceptance criteria. (인수 조건 정의)\n"
+        )
+        
+        path = self.brief_dir / f"{brief_id}.md"
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def _extract_brief_section(self, text: str, heading: str) -> str:
+        pattern = re.compile(rf"^##\s*(?:\d+\.)?\s*{re.escape(heading)}(?:.*)?$", re.M)
+        match = pattern.search(text)
+        if not match:
+            return ""
+        start = match.end()
+        next_heading = re.search(r"^##\s+", text[start:], re.M)
+        end = start + next_heading.start() if next_heading else len(text)
+        return text[start:end].strip()
+
+    def _resolve_artifact_path(self, path_str: str) -> Path:
+        path = Path(path_str)
+        if path.is_absolute():
+            full = path
+        elif path.parts and path.parts[0] == self.root.name:
+            full = self.root.parent / path
+        else:
+            full = self.root / path
+        full = full.resolve()
+        root = self.root.resolve()
+        try:
+            full.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"Artifact path must live under {self.root.as_posix()}") from exc
+        return full
+
+    def _is_full_path(self, path_str: str) -> bool:
+        return ("/" in path_str or "\\" in path_str) and path_str.endswith(".md")
+
+    def _is_req_path(self, path: Path) -> bool:
+        req_root = self.req_dir.resolve()
+        try:
+            path.resolve().relative_to(req_root)
+        except ValueError:
+            return False
+        return True
+
+    def _parse_affected_artifacts(self, text: str) -> List[Dict[str, str]]:
+        section = self._extract_brief_section(text, "Affected Artifacts")
+        if not section:
+            return []
+        entries: List[Dict[str, str]] = []
+        for line in section.splitlines():
+            match = AFFECTED_LINE_RE.match(line)
+            if not match:
+                continue
+            action, target = match.groups()
+            target = target.strip()
+            link_match = MD_LINK_RE.search(target)
+            target_path = link_match.group(1) if link_match else target
+            entries.append({"action": action.title(), "raw": target, "path": target_path})
+        return entries
+
+    def _create_req_stub(self, req_path: Path, req_id: str) -> None:
+        parts = self._req_parts(req_id)
+        if not parts:
+            raise ValueError(f"Invalid REQ ID format: {req_id}")
+        domain = parts["domain"]
+        req_path.parent.mkdir(parents=True, exist_ok=True)
+        content = (
+            f"# [{req_id}] (TBD)\n\n"
+            f"> **ID**: {req_id}\n"
+            f"> **Domain**: {domain}\n"
+            "> **Status**: Draft\n"
+            f"> **Last Updated**: {self._now_date()}\n"
+            "> **Must-Read**: RULE-ID-001, RULE-META-001\n"
+            f"> **Template-Version**: {TEMPLATE_VERSION}\n\n"
+            "---\n\n"
+            "## Decision\n"
+            "- (TBD)\n\n"
+            "## Input\n"
+            "- (TBD)\n\n"
+            "## Output\n"
+            "- (TBD)\n\n"
+            "## Acceptance Criteria\n"
+            "- [ ] (TBD)\n\n"
+            "## Validation\n\n"
+            "```bash\n"
+            "# (TBD)\n"
+            "```\n"
+        )
+        req_path.write_text(content, encoding="utf-8")
+
+    def _touch_req_metadata(self, req_path: Path, status: str = "Active") -> None:
+        text = req_path.read_text(encoding="utf-8")
+        text = self._update_meta_line(text, "Last Updated", self._now_date())
+        if status:
+            text = self._update_meta_line(text, "Status", status)
+        req_path.write_text(text, encoding="utf-8")
+
+    def plan_from_brief(self, brief_id: str) -> Path:
+        """Create a RUN document based on a BRIEF."""
+        # Locate brief
+        brief_path = self.brief_dir / f"{brief_id}.md"
+        if not brief_path.exists():
+             raise FileNotFoundError(f"Brief not found: {brief_id}")
+
+        text = brief_path.read_text(encoding="utf-8")
+
+        artifacts = self._parse_affected_artifacts(text)
+        errors = []
+        if not artifacts:
+            errors.append("Affected Artifacts section is missing or empty")
+
+        req_targets: List[Tuple[str, Path]] = []
+        for entry in artifacts:
+            if not self._is_full_path(entry["path"]):
+                errors.append(f"Affected Artifacts must use full paths or links: {entry['raw']}")
+                continue
+            resolved = self._resolve_artifact_path(entry["path"])
+            if self._is_req_path(resolved):
+                req_targets.append((entry["action"], resolved))
+            elif "REQ-" in entry["path"]:
+                errors.append(
+                    f"REQ must live under 02_REQUIREMENTS/capabilities: {entry['raw']}"
+                )
+
+        if not req_targets:
+            errors.append("No REQ entries found in Affected Artifacts.")
+
+        if errors:
+            raise ValueError("Brief validation failed: " + "; ".join(errors))
+
+        for action_raw, req_path in req_targets:
+            action = action_raw.lower()
+            req_id = req_path.stem
+            if action == "create":
+                if req_path.exists():
+                    raise ValueError(f"REQ already exists: {req_path}")
+                self._create_req_stub(req_path, req_id)
+            elif action == "modify":
+                if not req_path.exists():
+                    raise FileNotFoundError(f"REQ not found for modify: {req_path}")
+                self._touch_req_metadata(req_path, status="Active")
+
+        # Parse Brief ID to create correlated RUN ID? 
+        # Or just use the Brief ID as the RUN base?
+        # Strategy: RUN-BRIEF-[DOMAIN]-[NNN]-step-01
+        
+        # Use simple mapping for now
+        run_id = f"RUN-{brief_id}-step-01"
+        run_path = self.run_dir / f"{run_id}.md"
+        
+        if run_path.exists():
+            # If step-01 exists, maybe increment? sticking to step-01 for simplicity of this logic
+            pass
+            
+        content = (
+            f"# [{run_id}] Execution for {brief_id}\n\n"
+            f"> **ID**: {run_id}\n"
+            f"> **Input**: {brief_id}\n"
+            f"> **Status**: Active\n"
+            f"> **Started**: {self._now_date()}\n"
+            f"> **Verification**: `python memory_manager.py --doctor`\n"
+            f"> **Template-Version**: {TEMPLATE_VERSION}\n\n"
+            "## Objective (목표)\n"
+            f"Execute the requirements defined in {brief_id}. ({brief_id}에 정의된 요구사항 실행)\n\n"
+            "## Scope (범위)\n"
+            "- Implement changes requested in the Brief. (브리프 요청사항 구현)\n\n"
+            "## Steps (단계)\n"
+            "1. Review Brief details. (브리프 내용 검토)\n"
+            "2. Implement code changes. (코드 변경 구현)\n"
+            "3. Verify against Brief goals. (브리프 목표 검증)\n\n"
+            "## Output (결과물)\n"
+            f"- Implemented features from {brief_id} ({brief_id} 기능 구현)\n"
+        )
+        
+        run_path.write_text(content, encoding="utf-8")
+        return run_path

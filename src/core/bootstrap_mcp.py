@@ -13,8 +13,8 @@ VALID_OS = {"windows", "unix"}
 
 def _python_path(os_name: str) -> str:
     if os_name == "windows":
-        return ".venv\\Scripts\\python.exe"
-    return ".venv/bin/python"
+        return ".venv-mcp\\Scripts\\python.exe"
+    return ".venv-mcp/bin/python"
 
 
 def _render_mcp_template(os_name: str) -> str:
@@ -37,7 +37,7 @@ def _render_prompt(target: str, os_name: str) -> str:
         "Goal: Configure MCP so the client can auto-spawn the MemoryAtlas server on demand.",
         f"Target client: {target}",
         f"OS: {os_name}",
-        "Python strategy: default to .venv unless specified otherwise.",
+        "Python strategy: default to .venv-mcp unless specified otherwise.",
         "",
         "Constraints:",
         "- Do NOT edit anything under 02_REQUIREMENTS automatically.",
@@ -100,7 +100,7 @@ def _render_run_script_ps1() -> str:
         "$systemDir = Split-Path -Parent $scriptDir\n"
         "$memoryDir = Split-Path -Parent $systemDir\n"
         "$repoDir = Split-Path -Parent $memoryDir\n"
-        "$python = Join-Path $repoDir \".venv\\\\Scripts\\\\python.exe\"\n"
+        "$python = Join-Path $repoDir \".venv-mcp\\\\Scripts\\\\python.exe\"\n"
         "$server = Join-Path $memoryDir \"00_SYSTEM\\\\mcp\\\\mcp_server.py\"\n"
         "& $python $server --stdio\n"
     )
@@ -114,7 +114,7 @@ def _render_run_script_sh() -> str:
         "system_dir=\"$(cd \"$script_dir/..\" && pwd)\"\n"
         "memory_dir=\"$(cd \"$system_dir/..\" && pwd)\"\n"
         "repo_dir=\"$(cd \"$memory_dir/..\" && pwd)\"\n"
-        "python=\"$repo_dir/.venv/bin/python\"\n"
+        "python=\"$repo_dir/.venv-mcp/bin/python\"\n"
         "\"$python\" \"$memory_dir/00_SYSTEM/mcp/mcp_server.py\" --stdio\n"
     )
 

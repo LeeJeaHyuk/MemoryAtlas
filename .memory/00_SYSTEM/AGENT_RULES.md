@@ -1,4 +1,4 @@
-# MemoryAtlas Agent Rules (v3.3.0) - Smart Spec Edition
+# MemoryAtlas Agent Rules (v3.4.1) - Smart Spec Edition
 
 > **SYSTEM FILE**: Managed by `memory_manager.py`. DO NOT EDIT.
 > **For custom rules**: Use `01_PROJECT_CONTEXT/01_CONVENTIONS.md`.

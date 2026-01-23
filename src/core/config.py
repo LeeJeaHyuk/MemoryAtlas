@@ -1,7 +1,7 @@
 
 import re
 
-CURRENT_VERSION = "3.3.0"
+CURRENT_VERSION = "3.4.1"
 ROOT_DIR = ".memory"
 TEMPLATE_VERSION = "3.3"  # Template schema version (Context Bootstrapping)
 
@@ -37,6 +37,7 @@ DIRS = [
     "02_REQUIREMENTS/capabilities",
     "02_REQUIREMENTS/invariants",
     "02_REQUIREMENTS/discussions",
+    "02_REQUIREMENTS/discussions/briefs",
     "03_TECH_SPECS/architecture",
     "03_TECH_SPECS/api_specs",
     "03_TECH_SPECS/decisions",
@@ -55,6 +56,7 @@ LINT_DIRS = [
     "02_REQUIREMENTS/capabilities",
     "02_REQUIREMENTS/invariants",
     "02_REQUIREMENTS/discussions",
+    "02_REQUIREMENTS/discussions/briefs",
     "04_TASK_LOGS/active",
 ]
 
@@ -74,6 +76,11 @@ RUN_SCAN_DIRS = [
     "04_TASK_LOGS/active",
 ]
 
+
+BRIEF_SCAN_DIRS = [
+    "02_REQUIREMENTS/discussions/briefs",
+]
+
 LINT_SKIP_FILES = {"README.md", "00_INDEX.md", "_index.md"}
 
 # Document type-specific header requirements
@@ -84,6 +91,7 @@ HEADER_FIELDS_BY_TYPE = {
     "decisions": ["**Status**", "**Date**"],
     "discussions": ["**ID**", "**Related-REQ**", "**Date**"],
     "runs": ["**ID**", "**Input**", "**Verification**"],
+    "briefs": ["**ID**", "**Date**"],
 }
 
 # ID patterns
@@ -92,13 +100,14 @@ RULE_ID_PATTERN = re.compile(r"^RULE-([A-Z]+)-(\d{3})$")
 ADR_ID_PATTERN = re.compile(r"^ADR-(\d{3})$")
 DISC_ID_PATTERN = re.compile(r"^DISC-([A-Z]+)-(\d{3})$")
 RUN_ID_PATTERN = re.compile(r"^RUN-(REQ|RULE)-([A-Z]+)-(\d{3})-step-(\d{2})$")
+BRIEF_ID_PATTERN = re.compile(r"^BRIEF-([A-Z]+)-(\d{3})$")
 
 # Regex patterns
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
 # Authority source: **ID**: line in document metadata
 # Fix A: Include ADR in META_ID_RE
-META_ID_RE = re.compile(r"^\s*>\s*\*\*ID\*\*:\s*((?:REQ|RULE|DISC|RUN|ADR)-[A-Z0-9-]+(?:-step-\d{2})?)\s*$", re.M)
+META_ID_RE = re.compile(r"^\s*>\s*\*\*ID\*\*:\s*((?:REQ|RULE|DISC|RUN|ADR|BRIEF)-[A-Z0-9-]+(?:-step-\d{2})?)\s*$", re.M)
 
 # Must-Read field (v2.2)
 MUST_READ_RE = re.compile(r"^\s*>\s*\*\*Must-Read\*\*:\s*(.+)$", re.M)
@@ -112,6 +121,7 @@ REQ_HEADER_RE = re.compile(r"^#{1,3}\s+\[(REQ-[A-Z]+-\d{3})\]", re.M)
 RULE_HEADER_RE = re.compile(r"^#{1,3}\s+\[(RULE-[A-Z]+-\d{3})\]", re.M)
 RUN_HEADER_RE = re.compile(r"^#{1,3}\s+\[(RUN-(?:REQ|RULE)-[A-Z]+-\d{3}-step-\d{2})\]", re.M)
 DISC_HEADER_RE = re.compile(r"^#{1,3}\s+\[(DISC-[A-Z]+-\d{3})\]", re.M)
+BRIEF_HEADER_RE = re.compile(r"^#{1,3}\s+\[(BRIEF-[A-Z]+-\d{3})\]", re.M)
 
 # RUN document sections (v2.2)
 RUN_INPUT_RE = re.compile(r"^\s*>\s*\*\*Input\*\*:\s*(.+)$", re.M)
@@ -1667,6 +1677,50 @@ MCP_DEFINITIONS = {
             "Includes summary, evidence, hypotheses, fix options, next steps.",
             "One DISC per failure event.",
         ],
+    },
+    "intake": {
+        "signature": "intake(description, domain='GEN')",
+        "summary": "Intake a new user request and create a BRIEF document.",
+        "inputs": [
+            "`description` (str): User request logic/features.",
+            "`domain` (str): Domain code (default 'GEN')."
+        ],
+        "outputs": [
+            "BRIEF document path (key: `brief_path`)."
+        ],
+        "behavior": [
+            "Creates a new BRIEF in active logs.",
+            "Use this to start a new feature or task."
+        ],
+    },
+    "plan_from_brief": {
+        "signature": "plan_from_brief(brief_id)",
+        "summary": "Create a RUN document from an existing BRIEF.",
+        "inputs": [
+            "`brief_id` (str): Target Brief ID."
+        ],
+        "outputs": [
+            "RUN ID (key: `run_id`).",
+            "RUN document path (key: `run_path`)."
+        ],
+        "behavior": [
+            "Creates a RUN document linked to the Brief.",
+            "Moves workflow from Intake to Execution."
+        ],
+    },
+    "apply_req": {
+        "signature": "apply_req(req_id, dry_run=False) (Deprecated)",
+        "summary": "(Deprecated) Use plan_from_brief instead.",
+        "inputs": ["`req_id` (str)", "`dry_run` (bool)"],
+        "outputs": ["Report dict"],
+        "behavior": ["Triggers deprecation warning."],
+    },
+    "apply_req_full": {
+        "signature": "apply_req_full(req_id) (Deprecated)",
+        "summary": "(Deprecated) One-shot orchestration.",
+        "inputs": ["`req_id` (str)"],
+        "outputs": ["State dict"],
+        "behavior": ["See plan_from_brief."],
     },
     "req_status": {
         "signature": "req_status(req_id)",

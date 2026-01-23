@@ -7,49 +7,37 @@ Each section below documents an MCP function exposed by MemoryAtlas.
 ## apply_req
 
 ### Signature
-`apply_req(req_id, dry_run=false, create_spec="auto")`
+`apply_req(req_id, dry_run=False) (Deprecated)`
 
 ### Summary
-Orchestrate the REQ -> RUN pipeline with validation gates.
+(Deprecated) Use plan_from_brief instead.
 
 ### Inputs
-- `req_id` (str): Target REQ ID.
-- `dry_run` (bool): Preview only.
-- `create_spec` (bool | "auto"): Create spec draft when true or auto-triggered.
+- `req_id` (str)
+- `dry_run` (bool)
 
 ### Outputs
-- RUN document created/updated in `04_TASK_LOGS/active/`.
-- DISC draft path on failure.
-- Stage/result report.
+- Report dict
 
 ### Behavior
-- Requires REQ `Status=Active`.
-- Runs `validate(lint)`, `validate(req)`, `validate(links)` gates.
-- Creates 03 specs when `create_spec` is true or auto-triggered.
-- Does not edit code by default.
+- Triggers deprecation warning.
 
 ## apply_req_full
 
 ### Signature
-`apply_req_full(req_id, dry_run=false)`
+`apply_req_full(req_id) (Deprecated)`
 
 ### Summary
-One-shot orchestration that drives the state machine and returns follow-up hints.
+(Deprecated) One-shot orchestration.
 
 ### Inputs
-- `req_id` (str): Target REQ ID.
-- `dry_run` (bool): Preview only.
+- `req_id` (str)
 
 ### Outputs
-- State-aware report (`state`, `run_id`, `next_action`).
-- `instructions` plus `continue_with` / `continue_args` for client-driven steps.
-- DISC draft path on failure.
+- State dict
 
 ### Behavior
-- Runs lint/req/links validation on the first pass.
-- Creates RUN when validation passes.
-- Returns implementation instructions; code edits are performed by the client/agent.
-- Runs `--doctor` and finalizes when state is ready.
+- See plan_from_brief.
 
 ## continue_req
 
@@ -123,6 +111,44 @@ Mark a RUN as completed and archive it.
 
 ### Behavior
 - Requires `--doctor` pass before completion.
+
+## intake
+
+### Signature
+`intake(description, domain='GEN')`
+
+### Summary
+Intake a new user request and create a BRIEF document.
+
+### Inputs
+- `description` (str): User request logic/features.
+- `domain` (str): Domain code (default 'GEN').
+
+### Outputs
+- BRIEF document path (key: `brief_path`).
+
+### Behavior
+- Creates a new BRIEF in active logs.
+- Use this to start a new feature or task.
+
+## plan_from_brief
+
+### Signature
+`plan_from_brief(brief_id)`
+
+### Summary
+Create a RUN document from an existing BRIEF.
+
+### Inputs
+- `brief_id` (str): Target Brief ID.
+
+### Outputs
+- RUN ID (key: `run_id`).
+- RUN document path (key: `run_path`).
+
+### Behavior
+- Creates a RUN document linked to the Brief.
+- Moves workflow from Intake to Execution.
 
 ## req_status
 
