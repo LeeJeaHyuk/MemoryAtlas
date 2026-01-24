@@ -1637,7 +1637,7 @@ python memory_manager.py --guide
 ## Phase 3: MCP 연동 확인 (선택)
 
 ### Q7. MCP 사용 여부
-> "MCP(Model Context Protocol) 도구를 사용할 예정인가요? (intake, plan, run 자동화)"
+> "MCP(Model Context Protocol) 도구를 사용할 예정인가요? (intake, plan, finish 자동화)"
 
 - Yes → MCP 설정 안내 진행
 - No → Phase 완료
@@ -2285,30 +2285,48 @@ All three must match.
 
 ---
 
-## 7. Workflow
+## 7. 3-Step Workflow (Intake → Plan → Finish)
 
-### Starting a Task
-1. Read P0 documents (**CONVENTIONS의 Boundaries 확인**)
-2. Read target REQ and its Must-Read
-3. Check REQ's Constraints & Boundaries (있는 경우)
-4. Create RUN-* document in `04_TASK_LOGS/active/`
-5. Implement in small steps
+### MCP 도구 (핵심)
 
-### Before Completing a Step (Self-Check)
+| 트리거 | MCP 도구 | 결과 |
+|--------|----------|------|
+| "intake 해줘" | `intake(description)` | BRIEF 생성 |
+| "plan 만들어" | `plan(brief_id)` | RUN 생성 |
+| "작업 완료" | `finish(run_id, git_hash)` | Status 완료 |
+
+### Step 1: Intake
+- 사용자가 "~해줘", "intake 해줘" 요청 시
+- `intake("요청 내용")` 호출 → BRIEF 생성
+- BRIEF 검토 요청
+
+### Step 2: Plan
+- 사용자가 "plan 만들어", "계획 확정" 요청 시
+- `plan("BRIEF-ID")` 호출 → RUN 생성
+- RUN 검토 요청
+
+### Step 3: Finish
+- 구현 완료 후
+- Git 커밋 생성
+- `finish("RUN-ID", git_hash="...")` 호출
+- RUN은 active/에 유지 (Archive 이동 없음)
+
+### Self-Check (완료 전 필수)
 - [ ] **Test**: 테스트 통과?
 - [ ] **Boundary**: CONVENTIONS Boundaries 준수?
-- [ ] **Spec**: REQ와 일치?
-
-### Completing a Step
-1. Self-Check 완료 확인
-2. Mark RUN as Done
-3. Move to `04_TASK_LOGS/archive/YYYY-MM/`
-4. Create next step if needed
+- [ ] **Spec**: REQ/BRIEF와 일치?
 
 ### When Discussion Needed
 1. Create DISC-* in `02_REQUIREMENTS/discussions/`
 2. Reference from REQ's `Related` section
 3. Update REQ with final decision
+
+---
+
+## 8. 하위 호환 별칭
+
+- `plan_from_brief()` → `plan()` (v3.4 이전 호환)
+- `finalize_run()` → `finish()` (v3.4 이전 호환)
 """
 
 SYSTEM_TEMPLATES = {
