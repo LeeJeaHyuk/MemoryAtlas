@@ -62,7 +62,7 @@
 ## Phase 3: MCP 연동 확인 (선택)
 
 ### Q7. MCP 사용 여부
-> "MCP(Model Context Protocol) 도구를 사용할 예정인가요? (intake, plan, run 자동화)"
+> "MCP(Model Context Protocol) 도구를 사용할 예정인가요? (intake, plan, finish 자동화)"
 
 - Yes → MCP 설정 안내 진행
 - No → Phase 완료

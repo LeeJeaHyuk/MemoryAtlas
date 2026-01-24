@@ -29,7 +29,7 @@ python memory_manager.py --guide
 ### Phase 3: MCP 연동 (선택)
 - [ ] MCP 서버 설정 확인 <!-- id:phase3.mcp_server -->
 - [ ] 클라이언트 연동 테스트 <!-- id:phase3.mcp_client -->
-- [ ] `intake()`, `plan_from_brief()`, `finalize_run()` 동작 확인 <!-- id:phase3.mcp_tools -->
+- [ ] `intake()`, `plan()`, `finish()` 동작 확인 <!-- id:phase3.mcp_tools -->
 
 ## 설정 완료 후
 
@@ -38,8 +38,8 @@ python memory_manager.py --guide
 | 명령어 | 설명 |
 |--------|------|
 | `intake("요청")` | 아이디어 → BRIEF 생성 |
-| `plan_from_brief("BRIEF-ID")` | BRIEF → RUN 생성 |
-| `finalize_run("RUN-ID", git_hash="...")` | Status 완료 + Git 증거 기록 |
+| `plan("BRIEF-ID")` | BRIEF → RUN 생성 |
+| `finish("RUN-ID", git_hash="...")` | Status 완료 + Git 증거 기록 |
 
 ## 도움이 필요하면
 

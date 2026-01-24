@@ -4,17 +4,19 @@
 > **Version**: 3.4.1 (Smart Spec Edition)
 > **Template Version**: 3.4
 
-## Capabilities & Invariants Model (v3.0)
+## Capabilities, Invariants & Competencies Model (v3.1)
 
 ```
 02_REQUIREMENTS/ 구조:
-  capabilities/  - REQ-* (기능/행동) "시스템은 ~해야 한다"
-  invariants/    - RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
-  discussions/   - DISC-* (조율 기록) LLM 기본 무시
+  capabilities/   - REQ-* (기능/행동) "시스템은 ~해야 한다"
+  invariants/     - RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
+  competencies/  - CQ-* (역량 질문) "시스템은 ~에 답할 수 있는가?"
+  discussions/    - DISC-* (조율 기록) LLM 기본 무시
 
-REQ vs RULE 판정:
+REQ vs RULE vs CQ 판정:
   REQ  = Input/Output/Acceptance Criteria 필수 (동작 중심)
   RULE = Scope/Violation/Examples 필수 (불변 중심)
+  CQ   = Question/Expected Answer/Traceability 필수 (검증 중심)
 ```
 
 ## Quick Navigation
@@ -24,6 +26,7 @@ REQ vs RULE 판정:
 | `01_PROJECT_CONTEXT/` | 프로젝트 헌법 + **Boundaries** | Constitution |
 | `02_REQUIREMENTS/capabilities/` | 기능 **결정** (REQ-*) | Authority |
 | `02_REQUIREMENTS/invariants/` | 불변 규칙 **결정** (RULE-*) | Authority |
+| `02_REQUIREMENTS/competencies/` | 역량 질문 **검증** (CQ-*) | Authority |
 | `02_REQUIREMENTS/discussions/` | 조율 기록 (DISC-*) | Reference |
 | `03_TECH_SPECS/` | 기술 설계 & ADR | Implementation |
 | `04_TASK_LOGS/` | 실행 기록 (RUN-*) | Execution |
@@ -35,21 +38,22 @@ REQ vs RULE 판정:
 1. **P0**: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **특히 Boundaries 섹션** ⭐
 2. **P0**: Target REQ's `**Must-Read**` field
 3. **P1**: `02_REQUIREMENTS/invariants/` (all active)
-4. **P2**: `98_KNOWLEDGE/` (if complex feature)
+4. **P1.5**: `02_REQUIREMENTS/competencies/` (referenced CQs only)
+5. **P2**: `98_KNOWLEDGE/` (if complex feature)
 
-## 3-Phase Workflow (Intake → Plan → Execute)
+## 3-Step Workflow (Intake → Plan → Finish)
 
 1. **Intake**: 생각/메모 → BRIEF 생성 (`02_REQUIREMENTS/discussions/briefs/`)
 2. **Plan**: BRIEF → RUN 생성 (`04_TASK_LOGS/active/`)
-3. **Execute**: RUN 기준 구현 → Status 업데이트 + Git 증거
+3. **Finish**: 구현 완료 → Status 업데이트 + Git 증거
 
-> MCP 도구: `intake()` → `plan_from_brief()` → `finalize_run()`
+> MCP 도구: `intake()` → `plan()` → `finish()`
 
-### Execution Checklist (3-Phase Workflow)
+### Execution Checklist
 1. [ ] **Intake**: BRIEF 생성 및 검토
 2. [ ] **Plan**: RUN 문서 생성 및 검토
 3. [ ] 구현 → 테스트 → Git 커밋
-4. [ ] **Execute**: Self-Check 통과 후 finalize_run (Status → Completed)
+4. [ ] **Finish**: Self-Check 통과 후 finish() 호출 (Status → Completed)
 
 ## Quick Start (MCP 도구 사용법)
 
@@ -61,17 +65,17 @@ intake("사용자 요청 내용", domain="GEN")
 
 ### 2. "Plan 만들어줘"
 ```python
-plan_from_brief("BRIEF-GEN-001")
+plan("BRIEF-GEN-001")
 ```
 → 반환: RUN ID (예: `RUN-BRIEF-GEN-001-step-01`)
 
-### 3. "Run 해줘"
+### 3. "작업 완료"
 1. RUN 문서의 Steps 실행
 2. Self-Check 확인
 3. Git 커밋 생성
 4. 완료 후:
 ```python
-finalize_run("RUN-BRIEF-GEN-001-step-01", git_hash="abc123")
+finish("RUN-BRIEF-GEN-001-step-01", git_hash="abc123")
 ```
 → Status가 Completed로 변경 + Git 증거 기록
 
@@ -81,10 +85,10 @@ User: "로그인 기능 추가해줘. intake 해"
 LLM:  intake("로그인 기능 추가", domain="AUTH") 호출
 LLM:  BRIEF 생성 → 사용자 검토 요청
 User: "plan 만들어"
-LLM:  plan_from_brief("BRIEF-AUTH-001") 호출
+LLM:  plan("BRIEF-AUTH-001") 호출
 LLM:  RUN 생성 → 사용자 검토 요청
 User: "run 해"
-LLM:  RUN Steps 실행 → Self-Check → finalize_run()
+LLM:  RUN Steps 실행 → Self-Check → finish()
 ```
 
 ## Manual Fallback (MCP 없이)
@@ -148,6 +152,7 @@ MCP 도구 사용이 불가능하거나 원하지 않는 경우, 동일한 워�
 ### 02_REQUIREMENTS (요구사항)
 - [capabilities/](02_REQUIREMENTS/capabilities/) - 기능 **결정** (REQ-*)
 - [invariants/](02_REQUIREMENTS/invariants/) - 불변 규칙 **결정** (RULE-*)
+- [competencies/](02_REQUIREMENTS/competencies/) - 역량 질문 **검증** (CQ-*)
 - [discussions/](02_REQUIREMENTS/discussions/) - 조율 기록 (DISC-*)
 
 ### 03_TECH_SPECS (기술 설계)

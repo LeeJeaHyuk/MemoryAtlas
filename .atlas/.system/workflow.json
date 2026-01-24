@@ -1,0 +1,67 @@
+{
+  "$schema": "MemoryAtlas Workflow State Machine v1.0",
+  "description": "Document status transitions and validation rules",
+
+  "states": {
+    "brief": {
+      "values": ["Intake", "Planned", "Active", "Done", "Cancelled"],
+      "initial": "Intake",
+      "terminal": ["Done", "Cancelled"]
+    },
+    "run": {
+      "values": ["Planned", "Active", "Completed", "Failed", "Blocked"],
+      "initial": "Planned",
+      "terminal": ["Completed", "Failed"]
+    },
+    "req": {
+      "values": ["Draft", "Active", "Deprecated"],
+      "initial": "Draft",
+      "terminal": ["Deprecated"]
+    },
+    "rule": {
+      "values": ["Draft", "Active", "Deprecated"],
+      "initial": "Draft",
+      "terminal": ["Deprecated"]
+    },
+    "cq": {
+      "values": ["Draft", "Verified", "Failed"],
+      "initial": "Draft",
+      "terminal": ["Verified", "Failed"]
+    }
+  },
+
+  "transitions": {
+    "brief": {
+      "Intake→Planned": { "trigger": "plan()", "requires": ["at least 1 RUN created"] },
+      "Planned→Active": { "trigger": "first RUN becomes Active", "auto": true },
+      "Active→Done": { "trigger": "finish()", "requires": ["all RUNs terminal", "git_commit present"] },
+      "Active→Cancelled": { "trigger": "cancel()", "requires": [] },
+      "Intake→Cancelled": { "trigger": "cancel()", "requires": [] }
+    },
+    "run": {
+      "Planned→Active": { "trigger": "execute starts", "requires": [] },
+      "Active→Completed": { "trigger": "finish()", "requires": ["deliverables exist"] },
+      "Active→Failed": { "trigger": "finish(fail=true)", "requires": ["failure reason"] },
+      "Active→Blocked": { "trigger": "block()", "requires": ["blocker description"] },
+      "Blocked→Active": { "trigger": "unblock()", "requires": [] }
+    }
+  },
+
+  "completion_rules": {
+    "brief_done": {
+      "required_fields": ["Git"],
+      "all_runs_must_be": ["Completed", "Failed"],
+      "description": "BRIEF cannot be Done if any RUN is still Active/Planned"
+    },
+    "run_completed": {
+      "required_fields": ["Deliverables"],
+      "description": "RUN needs deliverables to be marked Completed"
+    }
+  },
+
+  "stuck_prevention": {
+    "max_active_runs_per_brief": 1,
+    "orphan_run_warning_hours": 24,
+    "description": "Detect stuck states: RUN Active for too long, BRIEF with no terminal RUNs"
+  }
+}

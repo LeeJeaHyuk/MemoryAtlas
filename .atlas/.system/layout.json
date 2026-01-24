@@ -1,0 +1,47 @@
+{
+  "$schema": "MemoryAtlas Layout Rules v1.0",
+  "description": "Folder/file structure validation rules",
+
+  "allowed_folders": {
+    ".atlas": {
+      "description": "All project artifacts live here",
+      "children": ["req", "rule", "cq", "brief", "runs", "idea", ".system"]
+    },
+    ".atlas/req": { "description": "Requirements" },
+    ".atlas/rule": { "description": "Constraints/Rules" },
+    ".atlas/cq": { "description": "Completion Questions" },
+    ".atlas/brief": { "description": "Task briefs" },
+    ".atlas/runs": { "description": "Execution logs" },
+    ".atlas/idea": {
+      "description": "Unstructured notes/memos/scraps - no validation rules",
+      "doctor_excluded": true,
+      "notes": "plan() cannot use idea/ as direct input. Other docs may link to idea/ as reference only."
+    },
+    ".atlas/.system": {
+      "description": "System configuration",
+      "children": ["templates", "state", "src", "prompts"]
+    }
+  },
+
+  "root_policy": {
+    "allowed_files": [".gitignore", "README.md", "CLAUDE.md", "*.ini", "*.txt"],
+    "allowed_folders": [".atlas", ".git", ".vscode", ".claude", "node_modules", ".venv*", "__pycache__"],
+    "strict_mode": false,
+    "description": "When strict_mode=true, doctor fails on unknown root items"
+  },
+
+  "file_naming": {
+    "req": "REQ-{DOMAIN}-{SEQ:3}.md",
+    "rule": "RULE-{DOMAIN}-{SEQ:3}.md",
+    "cq": "CQ-{DOMAIN}-{SEQ:3}.md",
+    "brief": "BRIEF-{DOMAIN}-{SEQ:3}.md",
+    "run": "RUN-BRIEF-{DOMAIN}-{SEQ:3}-step-{STEP:2}.md"
+  },
+
+  "legacy_migration": {
+    "02_REQUIREMENTS": ".atlas/req",
+    "03_RULES": ".atlas/rule",
+    "04_TASK_LOGS/active": ".atlas/runs",
+    "description": "Old .memory paths → new .atlas paths"
+  }
+}

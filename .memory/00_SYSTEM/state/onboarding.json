@@ -1,0 +1,17 @@
+{
+  "items": {
+    "phase1.project_goal": false,
+    "phase1.project_name": false,
+    "phase1.tech_stack": false,
+    "phase2.boundaries": false,
+    "phase2.coding_style": false,
+    "phase2.testing_policy": false,
+    "phase3.mcp_client": false,
+    "phase3.mcp_server": false,
+    "phase3.mcp_tools": false
+  },
+  "last_updated": "2026-01-23",
+  "notes": "",
+  "schema_version": 1,
+  "template_version": "3.4"
+}

@@ -1,0 +1,108 @@
+{
+  "$schema": "MemoryAtlas Document Schemas v1.0",
+  "description": "Document type validation: ID patterns, required fields, sections",
+
+  "id_patterns": {
+    "req": "^REQ-[A-Z]{2,6}-\\d{3}$",
+    "rule": "^RULE-[A-Z]{2,6}-\\d{3}$",
+    "cq": "^CQ-[A-Z]{2,6}-\\d{3}$",
+    "brief": "^BRIEF-[A-Z]{2,6}-\\d{3}$",
+    "run": "^RUN-BRIEF-[A-Z]{2,6}-\\d{3}-step-\\d{2}$"
+  },
+
+  "meta_line_pattern": "^>\\s*\\*\\*([^*]+)\\*\\*:\\s*(.*)$",
+
+  "document_types": {
+    "req": {
+      "required_meta": ["ID", "Type", "Priority", "Status", "Last Updated"],
+      "optional_meta": ["Domain", "Source"],
+      "required_sections": ["Summary", "Input", "Output", "Acceptance Criteria"],
+      "optional_sections": ["Dependencies", "Notes"],
+      "link_rules": {
+        "allowed_outbound": ["rule", "req"],
+        "self_reference": false
+      }
+    },
+
+    "rule": {
+      "required_meta": ["ID", "Type", "Scope", "Status", "Last Updated"],
+      "optional_meta": ["Domain", "Severity"],
+      "required_sections": ["Statement", "Rationale"],
+      "optional_sections": ["Examples", "Exceptions"],
+      "link_rules": {
+        "allowed_outbound": ["req", "rule"],
+        "self_reference": false
+      }
+    },
+
+    "cq": {
+      "required_meta": ["ID", "Domain", "Status", "Last Updated"],
+      "optional_meta": [],
+      "required_sections": ["Question", "Expected Answer (Criteria)", "Traceability"],
+      "optional_sections": [],
+      "link_rules": {
+        "allowed_outbound": ["req", "rule"],
+        "self_reference": false,
+        "solves_by_min": 1,
+        "constrained_by_min": 0
+      }
+    },
+
+    "brief": {
+      "required_meta": ["ID", "Domain", "Status", "Date"],
+      "optional_meta": ["Authority", "Git", "Priority"],
+      "required_sections": ["User Request", "Intent Summary", "Affected Artifacts", "Proposed Changes", "Verification Criteria"],
+      "optional_sections": [],
+      "link_rules": {
+        "allowed_outbound": ["req", "rule", "cq", "run"],
+        "self_reference": false
+      }
+    },
+
+    "run": {
+      "required_meta": ["ID", "BRIEF", "Step", "Status", "Started"],
+      "optional_meta": ["Completed", "Duration"],
+      "required_sections": ["Objective", "Tasks", "Deliverables"],
+      "optional_sections": ["Blockers", "Notes", "Next"],
+      "link_rules": {
+        "allowed_outbound": ["brief", "req", "rule", "cq"],
+        "required_inbound": ["brief"],
+        "self_reference": false
+      }
+    }
+  },
+
+  "validation_rules": {
+    "id_filename_match": {
+      "description": "Document ID must match filename (e.g., REQ-MCP-001 → REQ-MCP-001.md)",
+      "severity": "error"
+    },
+    "id_header_match": {
+      "description": "Document ID in meta must match # heading",
+      "severity": "error"
+    },
+    "link_target_exists": {
+      "description": "All markdown links to .atlas/* must resolve",
+      "severity": "error"
+    },
+    "link_type_correct": {
+      "description": "Links must point to correct folder (REQ-* → req/)",
+      "severity": "error"
+    },
+    "status_value_valid": {
+      "description": "Status must be one of allowed values for document type",
+      "severity": "error"
+    },
+    "date_format": {
+      "description": "Dates should be YYYY-MM-DD",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "severity": "warning"
+    }
+  },
+
+  "domains": {
+    "known": ["MCP", "CLI", "DOC", "VALID", "BUILD", "TEST", "CORE", "API"],
+    "allow_unknown": true,
+    "description": "Known domains for autocomplete; unknown allowed but warned"
+  }
+}

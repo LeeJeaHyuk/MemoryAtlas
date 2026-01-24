@@ -5,16 +5,17 @@
 > 이 폴더는 **"무엇을 만들 것인가?"**의 **최종 결정**을 저장합니다.
 > 논의/조율 기록은 `discussions/`에 분리합니다.
 
-## Capabilities & Invariants Model (v3.0)
+## Capabilities, Invariants & Competencies Model (v3.1)
 
 ```
 문서 등급:
-├── capabilities/    → REQ-* (기능/행동) "시스템은 ~해야 한다"
-├── invariants/      → RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
-└── discussions/     → DISC-* (조율 기록, LLM 기본 무시)
+├── capabilities/     → REQ-* (기능/행동) "시스템은 ~해야 한다"
+├── invariants/       → RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
+├── competencies/     → CQ-* (역량 질문) "시스템은 ~에 답할 수 있는가?"
+└── discussions/      → DISC-* (조율 기록, LLM 기본 무시)
 ```
 
-## REQ vs RULE 판정 기준
+## REQ vs RULE vs CQ 판정 기준
 
 ### REQ (capabilities/에만 존재)
 - **문장 형태**: "시스템은 ~~해야 한다" (동작 중심)
@@ -26,6 +27,11 @@
 - **필수 섹션**: Scope, Violation 판정 기준, Examples
 - **테스트 가능**: 단독으로 참/거짓 판정 가능해야 함
 
+### CQ (competencies/에만 존재)
+- **문장 형태**: "시스템은 ~~에 답할 수 있는가?" (검증 중심)
+- **필수 섹션**: Question, Expected Answer, Traceability
+- **REQ/RULE 연결**: Solves by / Constrained by 링크로 추적성 확보
+
 ## Structure
 
 ```
@@ -34,6 +40,8 @@
 │   └── REQ-AUTH-001.md
 ├── invariants/         # RULE-* (불변 규칙)
 │   └── RULE-ID-001.md
+├── competencies/       # CQ-* (역량 질문)
+│   └── CQ-AUTH-001.md
 └── discussions/        # DISC-* (조율 기록)
     └── DISC-AUTH-001.md
 ```
@@ -44,6 +52,7 @@
 |------|---------|---------|----------|
 | Capability | `REQ-[DOMAIN]-[NNN].md` | `REQ-AUTH-001.md` | capabilities/ |
 | Invariant | `RULE-[DOMAIN]-[NNN].md` | `RULE-ID-001.md` | invariants/ |
+| Competency | `CQ-[DOMAIN]-[NNN].md` | `CQ-AUTH-001.md` | competencies/ |
 | Discussion | `DISC-[DOMAIN]-[NNN].md` | `DISC-AUTH-001.md` | discussions/ |
 
 ## Must-Read Field (Required)
@@ -55,6 +64,8 @@
 ```
 
 이 필드에 나열된 문서는 해당 REQ 구현 시 **반드시** 읽어야 합니다.
+
+CQ 문서는 Must-Read 대신 **Traceability 섹션**으로 REQ/RULE을 연결합니다.
 
 - Must-Read allows only RULE/ADR IDs (CTX is P0 and not allowed here).
 - If you use markdown links, the link text must be the ID (e.g. `[RULE-ID-001](invariants/RULE-ID-001.md)`).

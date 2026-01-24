@@ -10,7 +10,7 @@ Each section below documents an MCP function exposed by MemoryAtlas.
 `apply_req(req_id, dry_run=False) (Deprecated)`
 
 ### Summary
-(Deprecated) Use plan_from_brief instead.
+(Deprecated) Use plan() instead.
 
 ### Inputs
 - `req_id` (str)
@@ -37,7 +37,7 @@ Each section below documents an MCP function exposed by MemoryAtlas.
 - State dict
 
 ### Behavior
-- See plan_from_brief.
+- See plan().
 
 ## continue_req
 
@@ -98,19 +98,42 @@ Create a RUN document from template for a REQ.
 ## finalize_run
 
 ### Signature
-`finalize_run(run_id)`
+`finalize_run(run_id, success=True, git_hash='')`
 
 ### Summary
-Mark a RUN as completed and archive it.
+(Alias) See finish().
+
+### Inputs
+- `run_id` (str)
+- `success` (bool)
+- `git_hash` (str)
+
+### Outputs
+- Same as finish().
+
+### Behavior
+- Alias for finish() - kept for backward compatibility.
+
+## finish
+
+### Signature
+`finish(run_id, success=True, git_hash='')`
+
+### Summary
+Mark a RUN as completed with Git evidence.
 
 ### Inputs
 - `run_id` (str): RUN ID.
+- `success` (bool): Whether the run succeeded.
+- `git_hash` (str): Git commit hash as evidence.
 
 ### Outputs
-- RUN moved to `04_TASK_LOGS/archive/` after validation.
+- RUN updated in `04_TASK_LOGS/active/` (no archive move).
 
 ### Behavior
-- Requires `--doctor` pass before completion.
+- Updates Status to Completed/Failed.
+- Records Git hash as evidence.
+- RUN stays in active/ (v3.4+ policy).
 
 ## intake
 
@@ -131,10 +154,10 @@ Intake a new user request and create a BRIEF document.
 - Creates a new BRIEF in active logs.
 - Use this to start a new feature or task.
 
-## plan_from_brief
+## plan
 
 ### Signature
-`plan_from_brief(brief_id)`
+`plan(brief_id)`
 
 ### Summary
 Create a RUN document from an existing BRIEF.
@@ -148,7 +171,25 @@ Create a RUN document from an existing BRIEF.
 
 ### Behavior
 - Creates a RUN document linked to the Brief.
+- Auto-creates/updates REQ documents.
 - Moves workflow from Intake to Execution.
+
+## plan_from_brief
+
+### Signature
+`plan_from_brief(brief_id)`
+
+### Summary
+(Alias) See plan().
+
+### Inputs
+- `brief_id` (str)
+
+### Outputs
+- Same as plan().
+
+### Behavior
+- Alias for plan() - kept for backward compatibility.
 
 ## req_status
 

@@ -171,8 +171,9 @@ memory/
 ### Reading Priority (P0 = Must Read)
 1. **P0**: 이 파일 (`01_CONVENTIONS.md`)
 2. **P0**: Target REQ의 `**Must-Read**` 필드
-3. **P1**: `02_REQUIREMENTS/business_rules/` (전체)
-4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
+3. **P1**: `02_REQUIREMENTS/invariants/` (전체)
+4. **P1.5**: `02_REQUIREMENTS/competencies/` (참조된 CQ만)
+5. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
 
 ### Execution Checklist
 1. [ ] CONVENTIONS의 Boundaries 확인
