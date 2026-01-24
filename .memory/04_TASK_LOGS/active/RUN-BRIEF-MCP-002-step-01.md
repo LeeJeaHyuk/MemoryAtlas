@@ -1,11 +1,12 @@
 # [RUN-BRIEF-MCP-002-step-01] Archive 폐지 및 Git 중심 운영 전환
 
 > **ID**: RUN-BRIEF-MCP-002-step-01
+> **Completed**: 2026-01-24
 > **Summary**: RUN 아카이브 이동 제거, Status+Git 기반 완료 관리
 > **Input**: BRIEF-MCP-002
-> **Status**: Active
+> **Status**: Completed
 > **Started**: 2026-01-24
-> **Git**: (pending)
+> **Git**: a2d6c78
 > **Verification**: `python memory_manager.py --doctor && python memory_manager.py --list-runs`
 > **Template-Version**: 3.4
 
@@ -65,3 +66,7 @@ RUN 아카이브 이동 로직을 제거하고 Status 메타데이터 + Git 커�
 - `.memory/00_INDEX.md` - 워크플로우 업데이트 완료
 - `.memory/GETTING_STARTED.md` - 가이드 업데이트 완료
 - `.memory/04_TASK_LOGS/active/README.md` - 대시보드 형식 추가
+## Result
+Success
+
+**Git Evidence**: `a2d6c78`
