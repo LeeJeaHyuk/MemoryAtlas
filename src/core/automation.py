@@ -183,8 +183,10 @@ class Automator:
         run_path.write_text(self._run_content(run_id, req_id, spec_ref), encoding="utf-8")
         return run_path
 
-    def finalize_run(self, run_id: str, success: bool = True, git_hash: str = "") -> Path:
-        """Update RUN status and record evidence. RUN remains in active (no archive move).
+    def finish(self, run_id: str, success: bool = True, git_hash: str = "") -> Path:
+        """Finalize a RUN by updating status and recording evidence.
+
+        RUN remains in active/ (no archive move per v3.4 policy).
 
         Args:
             run_id: The RUN document ID
@@ -522,8 +524,20 @@ class Automator:
             text = self._update_meta_line(text, "Status", status)
         req_path.write_text(text, encoding="utf-8")
 
-    def plan_from_brief(self, brief_id: str) -> Path:
-        """Create a RUN document based on a BRIEF."""
+    def plan(self, brief_id: str) -> Path:
+        """Create a RUN document based on a BRIEF.
+
+        This is the main planning function. Given a BRIEF ID, it:
+        1. Validates the BRIEF exists and has proper Affected Artifacts
+        2. Auto-creates/updates REQ documents as needed
+        3. Creates a RUN document for execution tracking
+
+        Args:
+            brief_id: The BRIEF document ID (e.g., "BRIEF-MCP-003")
+
+        Returns:
+            Path to the created RUN document
+        """
         # Locate brief
         brief_path = self.brief_dir / f"{brief_id}.md"
         if not brief_path.exists():
@@ -619,3 +633,12 @@ class Automator:
         
         run_path.write_text(content, encoding="utf-8")
         return run_path
+
+    # Aliases for backward compatibility
+    def plan_from_brief(self, brief_id: str) -> Path:
+        """Alias for plan() - kept for backward compatibility."""
+        return self.plan(brief_id)
+
+    def finalize_run(self, run_id: str, success: bool = True, git_hash: str = "") -> Path:
+        """Alias for finish() - kept for backward compatibility."""
+        return self.finish(run_id, success, git_hash)

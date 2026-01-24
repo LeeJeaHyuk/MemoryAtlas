@@ -6,7 +6,7 @@ ROOT_DIR = ".memory"
 TEMPLATE_VERSION = "3.4"  # Template schema version (Quick Start + Direct Execute)
 
 # ============================================================================
-# STRUCTURE (v3.0) - Capabilities & Invariants Edition
+# STRUCTURE (v3.1) - Capabilities, Invariants & Competencies Edition
 # ============================================================================
 # .memory/
 # ├── 00_SYSTEM/                  # 시스템 관리 (시스템만 수정)
@@ -16,6 +16,7 @@ TEMPLATE_VERSION = "3.4"  # Template schema version (Quick Start + Direct Execut
 # ├── 02_REQUIREMENTS/            # [WHAT: Authority Layer]
 # │   ├── capabilities/           # REQ-* (기능/행동 - "시스템은 ~해야 한다")
 # │   ├── invariants/             # RULE-* (불변 규칙 - "항상 ~이다")
+# │   ├── competencies/           # CQ-* (역량 질문 - "시스템은 ~에 답할 수 있는가?")
 # │   └── discussions/            # DISC-* (조율 기록, LLM 기본 무시)
 # ├── 03_TECH_SPECS/              # [HOW: 개발자의 영역]
 # │   ├── architecture/
@@ -36,6 +37,7 @@ DIRS = [
     "01_PROJECT_CONTEXT",
     "02_REQUIREMENTS/capabilities",
     "02_REQUIREMENTS/invariants",
+    "02_REQUIREMENTS/competencies",
     "02_REQUIREMENTS/discussions",
     "02_REQUIREMENTS/discussions/briefs",
     "03_TECH_SPECS/architecture",
@@ -55,6 +57,7 @@ LINT_DIRS = [
     "01_PROJECT_CONTEXT",
     "02_REQUIREMENTS/capabilities",
     "02_REQUIREMENTS/invariants",
+    "02_REQUIREMENTS/competencies",
     "02_REQUIREMENTS/discussions",
     "04_TASK_LOGS/active",
 ]
@@ -69,6 +72,7 @@ LINK_SCAN_DIRS = [
 REQ_SCAN_DIRS = [
     "02_REQUIREMENTS/capabilities",
     "02_REQUIREMENTS/invariants",
+    "02_REQUIREMENTS/competencies",
 ]
 
 RUN_SCAN_DIRS = [
@@ -87,6 +91,7 @@ HEADER_FIELDS_BY_TYPE = {
     "default": ["**ID**", "**Last Updated**"],
     "capabilities": ["**ID**", "**Domain**", "**Status**", "**Last Updated**", "**Must-Read**"],
     "invariants": ["**ID**", "**Domain**", "**Priority**", "**Last Updated**", "**Must-Read**"],
+    "competencies": ["**ID**", "**Domain**", "**Status**", "**Last Updated**"],
     "decisions": ["**Status**", "**Date**"],
     "discussions": ["**ID**", "**Related-REQ**", "**Date**"],
     "runs": ["**ID**", "**Input**", "**Verification**"],
@@ -96,6 +101,7 @@ HEADER_FIELDS_BY_TYPE = {
 # ID patterns
 REQ_ID_PATTERN = re.compile(r"^REQ-([A-Z]+)-(\d{3})$")
 RULE_ID_PATTERN = re.compile(r"^RULE-([A-Z]+)-(\d{3})$")
+CQ_ID_PATTERN = re.compile(r"^CQ-([A-Z]+)-(\d{3})$")
 ADR_ID_PATTERN = re.compile(r"^ADR-(\d{3})$")
 DISC_ID_PATTERN = re.compile(r"^DISC-([A-Z]+)-(\d{3})$")
 RUN_ID_PATTERN = re.compile(r"^RUN-(REQ|RULE|BRIEF)-([A-Z]+)-(\d{3})-step-(\d{2})$")
@@ -106,11 +112,11 @@ LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
 # Authority source: **ID**: line in document metadata
 # Fix A: Include ADR in META_ID_RE
-META_ID_RE = re.compile(r"^\s*>\s*\*\*ID\*\*:\s*((?:REQ|RULE|DISC|RUN|ADR|BRIEF)-[A-Z0-9-]+(?:-step-\d{2})?)\s*$", re.M)
+META_ID_RE = re.compile(r"^\s*>\s*\*\*ID\*\*:\s*((?:REQ|RULE|CQ|DISC|RUN|ADR|BRIEF)-[A-Z0-9-]+(?:-step-\d{2})?)\s*$", re.M)
 
 # Must-Read field (v2.2)
 MUST_READ_RE = re.compile(r"^\s*>\s*\*\*Must-Read\*\*:\s*(.+)$", re.M)
-MUST_READ_ANY_ID_RE = re.compile(r"(?:REQ|RULE|DISC|CTX)-[A-Z]+-\d{3}|ADR-\d{3}")
+MUST_READ_ANY_ID_RE = re.compile(r"(?:REQ|RULE|CQ|DISC|CTX)-[A-Z]+-\d{3}|ADR-\d{3}")
 MUST_READ_ALLOWED_ID_RE = re.compile(r"(?:RULE)-[A-Z]+-\d{3}|ADR-\d{3}")
 MUST_READ_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
@@ -118,6 +124,7 @@ MUST_READ_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 # P0 fix: Templates use # [REQ-...] (H1), so regex must match #{1,3}
 REQ_HEADER_RE = re.compile(r"^#{1,3}\s+\[(REQ-[A-Z]+-\d{3})\]", re.M)
 RULE_HEADER_RE = re.compile(r"^#{1,3}\s+\[(RULE-[A-Z]+-\d{3})\]", re.M)
+CQ_HEADER_RE = re.compile(r"^#{1,3}\s+\[(CQ-[A-Z]+-\d{3})\]", re.M)
 RUN_HEADER_RE = re.compile(r"^#{1,3}\s+\[(RUN-(?:REQ|RULE|BRIEF)-[A-Z]+-\d{3}-step-\d{2})\]", re.M)
 DISC_HEADER_RE = re.compile(r"^#{1,3}\s+\[(DISC-[A-Z]+-\d{3})\]", re.M)
 BRIEF_HEADER_RE = re.compile(r"^#{1,3}\s+\[(BRIEF-[A-Z]+-\d{3})\]", re.M)
@@ -143,17 +150,19 @@ DOC_TEMPLATES = {
 > **Version**: {CURRENT_VERSION} (Smart Spec Edition)
 > **Template Version**: {TEMPLATE_VERSION}
 
-## Capabilities & Invariants Model (v3.0)
+## Capabilities, Invariants & Competencies Model (v3.1)
 
 ```
 02_REQUIREMENTS/ 구조:
-  capabilities/  - REQ-* (기능/행동) "시스템은 ~해야 한다"
-  invariants/    - RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
-  discussions/   - DISC-* (조율 기록) LLM 기본 무시
+  capabilities/   - REQ-* (기능/행동) "시스템은 ~해야 한다"
+  invariants/     - RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
+  competencies/  - CQ-* (역량 질문) "시스템은 ~에 답할 수 있는가?"
+  discussions/    - DISC-* (조율 기록) LLM 기본 무시
 
-REQ vs RULE 판정:
+REQ vs RULE vs CQ 판정:
   REQ  = Input/Output/Acceptance Criteria 필수 (동작 중심)
   RULE = Scope/Violation/Examples 필수 (불변 중심)
+  CQ   = Question/Expected Answer/Traceability 필수 (검증 중심)
 ```
 
 ## Quick Navigation
@@ -163,6 +172,7 @@ REQ vs RULE 판정:
 | `01_PROJECT_CONTEXT/` | 프로젝트 헌법 + **Boundaries** | Constitution |
 | `02_REQUIREMENTS/capabilities/` | 기능 **결정** (REQ-*) | Authority |
 | `02_REQUIREMENTS/invariants/` | 불변 규칙 **결정** (RULE-*) | Authority |
+| `02_REQUIREMENTS/competencies/` | 역량 질문 **검증** (CQ-*) | Authority |
 | `02_REQUIREMENTS/discussions/` | 조율 기록 (DISC-*) | Reference |
 | `03_TECH_SPECS/` | 기술 설계 & ADR | Implementation |
 | `04_TASK_LOGS/` | 실행 기록 (RUN-*) | Execution |
@@ -174,21 +184,22 @@ REQ vs RULE 판정:
 1. **P0**: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` - **특히 Boundaries 섹션** ⭐
 2. **P0**: Target REQ's `**Must-Read**` field
 3. **P1**: `02_REQUIREMENTS/invariants/` (all active)
-4. **P2**: `98_KNOWLEDGE/` (if complex feature)
+4. **P1.5**: `02_REQUIREMENTS/competencies/` (referenced CQs only)
+5. **P2**: `98_KNOWLEDGE/` (if complex feature)
 
-## 3-Phase Workflow (Intake → Plan → Execute)
+## 3-Step Workflow (Intake → Plan → Finish)
 
 1. **Intake**: 생각/메모 → BRIEF 생성 (`02_REQUIREMENTS/discussions/briefs/`)
 2. **Plan**: BRIEF → RUN 생성 (`04_TASK_LOGS/active/`)
-3. **Execute**: RUN 기준 구현 → Status 업데이트 + Git 증거
+3. **Finish**: 구현 완료 → Status 업데이트 + Git 증거
 
-> MCP 도구: `intake()` → `plan_from_brief()` → `finalize_run()`
+> MCP 도구: `intake()` → `plan()` → `finish()`
 
-### Execution Checklist (3-Phase Workflow)
+### Execution Checklist
 1. [ ] **Intake**: BRIEF 생성 및 검토
 2. [ ] **Plan**: RUN 문서 생성 및 검토
 3. [ ] 구현 → 테스트 → Git 커밋
-4. [ ] **Execute**: Self-Check 통과 후 finalize_run (Status → Completed)
+4. [ ] **Finish**: Self-Check 통과 후 finish() 호출 (Status → Completed)
 
 ## Quick Start (MCP 도구 사용법)
 
@@ -200,17 +211,17 @@ intake("사용자 요청 내용", domain="GEN")
 
 ### 2. "Plan 만들어줘"
 ```python
-plan_from_brief("BRIEF-GEN-001")
+plan("BRIEF-GEN-001")
 ```
 → 반환: RUN ID (예: `RUN-BRIEF-GEN-001-step-01`)
 
-### 3. "Run 해줘"
+### 3. "작업 완료"
 1. RUN 문서의 Steps 실행
 2. Self-Check 확인
 3. Git 커밋 생성
 4. 완료 후:
 ```python
-finalize_run("RUN-BRIEF-GEN-001-step-01", git_hash="abc123")
+finish("RUN-BRIEF-GEN-001-step-01", git_hash="abc123")
 ```
 → Status가 Completed로 변경 + Git 증거 기록
 
@@ -220,10 +231,10 @@ User: "로그인 기능 추가해줘. intake 해"
 LLM:  intake("로그인 기능 추가", domain="AUTH") 호출
 LLM:  BRIEF 생성 → 사용자 검토 요청
 User: "plan 만들어"
-LLM:  plan_from_brief("BRIEF-AUTH-001") 호출
+LLM:  plan("BRIEF-AUTH-001") 호출
 LLM:  RUN 생성 → 사용자 검토 요청
 User: "run 해"
-LLM:  RUN Steps 실행 → Self-Check → finalize_run()
+LLM:  RUN Steps 실행 → Self-Check → finish()
 ```
 
 ## Manual Fallback (MCP 없이)
@@ -287,6 +298,7 @@ MCP 도구 사용이 불가능하거나 원하지 않는 경우, 동일한 워�
 ### 02_REQUIREMENTS (요구사항)
 - [capabilities/](02_REQUIREMENTS/capabilities/) - 기능 **결정** (REQ-*)
 - [invariants/](02_REQUIREMENTS/invariants/) - 불변 규칙 **결정** (RULE-*)
+- [competencies/](02_REQUIREMENTS/competencies/) - 역량 질문 **검증** (CQ-*)
 - [discussions/](02_REQUIREMENTS/discussions/) - 조율 기록 (DISC-*)
 
 ### 03_TECH_SPECS (기술 설계)
@@ -496,13 +508,14 @@ project_root/
 1. **P0**: 이 파일 (`01_CONVENTIONS.md`)
 2. **P0**: Target REQ의 `**Must-Read**` 필드
 3. **P1**: `02_REQUIREMENTS/invariants/` (전체)
-4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
+4. **P1.5**: `02_REQUIREMENTS/competencies/` (참조된 CQ만)
+5. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
 
-### Execution Checklist (3-Phase Workflow)
+### Execution Checklist (3-Step Workflow)
 1. [ ] **Intake**: BRIEF 생성 및 검토
 2. [ ] **Plan**: RUN 문서 생성 및 검토
 3. [ ] 구현 → 테스트 → 검증
-4. [ ] **Execute**: Self-Check 통과 후 finalize_run
+4. [ ] **Finish**: Self-Check 통과 후 finish() 호출
 """,
 
     "01_PROJECT_CONTEXT/04_AGENT_GUIDE.md": """# Agent Guide
@@ -665,16 +678,17 @@ List related documents here.
 > 이 폴더는 **"무엇을 만들 것인가?"**의 **최종 결정**을 저장합니다.
 > 논의/조율 기록은 `discussions/`에 분리합니다.
 
-## Capabilities & Invariants Model (v3.0)
+## Capabilities, Invariants & Competencies Model (v3.1)
 
 ```
 문서 등급:
-├── capabilities/    → REQ-* (기능/행동) "시스템은 ~해야 한다"
-├── invariants/      → RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
-└── discussions/     → DISC-* (조율 기록, LLM 기본 무시)
+├── capabilities/     → REQ-* (기능/행동) "시스템은 ~해야 한다"
+├── invariants/       → RULE-* (불변 규칙) "항상 ~이다 / ~는 금지"
+├── competencies/     → CQ-* (역량 질문) "시스템은 ~에 답할 수 있는가?"
+└── discussions/      → DISC-* (조율 기록, LLM 기본 무시)
 ```
 
-## REQ vs RULE 판정 기준
+## REQ vs RULE vs CQ 판정 기준
 
 ### REQ (capabilities/에만 존재)
 - **문장 형태**: "시스템은 ~~해야 한다" (동작 중심)
@@ -686,6 +700,11 @@ List related documents here.
 - **필수 섹션**: Scope, Violation 판정 기준, Examples
 - **테스트 가능**: 단독으로 참/거짓 판정 가능해야 함
 
+### CQ (competencies/에만 존재)
+- **문장 형태**: "시스템은 ~~에 답할 수 있는가?" (검증 중심)
+- **필수 섹션**: Question, Expected Answer, Traceability
+- **REQ/RULE 연결**: Solves by / Constrained by 링크로 추적성 확보
+
 ## Structure
 
 ```
@@ -694,6 +713,8 @@ List related documents here.
 │   └── REQ-AUTH-001.md
 ├── invariants/         # RULE-* (불변 규칙)
 │   └── RULE-ID-001.md
+├── competencies/       # CQ-* (역량 질문)
+│   └── CQ-AUTH-001.md
 └── discussions/        # DISC-* (조율 기록)
     └── DISC-AUTH-001.md
 ```
@@ -704,6 +725,7 @@ List related documents here.
 |------|---------|---------|----------|
 | Capability | `REQ-[DOMAIN]-[NNN].md` | `REQ-AUTH-001.md` | capabilities/ |
 | Invariant | `RULE-[DOMAIN]-[NNN].md` | `RULE-ID-001.md` | invariants/ |
+| Competency | `CQ-[DOMAIN]-[NNN].md` | `CQ-AUTH-001.md` | competencies/ |
 | Discussion | `DISC-[DOMAIN]-[NNN].md` | `DISC-AUTH-001.md` | discussions/ |
 
 ## Must-Read Field (Required)
@@ -715,6 +737,8 @@ List related documents here.
 ```
 
 이 필드에 나열된 문서는 해당 REQ 구현 시 **반드시** 읽어야 합니다.
+
+CQ 문서는 Must-Read 대신 **Traceability 섹션**으로 REQ/RULE을 연결합니다.
 
 - Must-Read allows only RULE/ADR IDs (CTX is P0 and not allowed here).
 - If you use markdown links, the link text must be the ID (e.g. `[RULE-ID-001](invariants/RULE-ID-001.md)`).
@@ -879,6 +903,51 @@ Adopt a formal Pending section only if at least two are true:
 4. **ID 일치**: 파일명 = **ID**: = 헤더 [ID]
 """,
 
+    "02_REQUIREMENTS/competencies/README.md": f"""# Competencies (CQ-*)
+
+> **Template-Version**: {TEMPLATE_VERSION}
+>
+> 시스템이 반드시 답해야 하는 질문(검증 시나리오)을 정의합니다.
+> CQ는 REQ/RULE의 완결성을 확인하는 테스트 케이스 역할입니다.
+
+## CQ 판정 기준
+
+- ✅ "시스템은 ~~에 답할 수 있는가?" 형태 (검증 중심)
+- ✅ Question / Expected Answer / Traceability 필수
+- ✅ REQ/RULE과 링크로 추적성 확보
+
+## Template
+
+```markdown
+# [CQ-XXX-001] Competency Question Title
+
+> **ID**: CQ-XXX-001
+> **Domain**: (도메인)
+> **Status**: [Draft | Active | Deprecated]
+> **Last Updated**: YYYY-MM-DD
+> **Template-Version**: {TEMPLATE_VERSION}
+
+---
+
+## Question
+(검증 질문)
+
+## Expected Answer (Criteria)
+1. ...
+2. ...
+
+## Traceability
+- **Solves by**: [REQ-XXX-001](../capabilities/REQ-XXX-001.md)
+- **Constrained by**: [RULE-XXX-001](../invariants/RULE-XXX-001.md)
+```
+
+## Rules
+
+1. **질문 중심**: 구현 방법이 아니라 답변 가능성에 집중
+2. **추적성 필수**: 최소 1개 REQ/RULE 링크
+3. **ID 일치**: 파일명 = **ID**: = 헤더 [ID]
+""",
+
     "02_REQUIREMENTS/discussions/README.md": f"""# Discussions (Reference Layer)
 
 > **Template-Version**: {TEMPLATE_VERSION}
@@ -949,7 +1018,7 @@ Adopt a formal Pending section only if at least two are true:
 
 1. `intake("설명")` -> `BRIEF-XXX-001.md` 생성
 2. BRIEF 검토 및 구체화 (LLM/Human)
-3. `plan_from_brief("BRIEF-ID")` -> `RUN` 및 `REQ` 생성
+3. `plan("BRIEF-ID")` -> `RUN` 및 `REQ` 생성
 
 ## Template
 
@@ -1001,9 +1070,11 @@ Adopt a formal Pending section only if at least two are true:
 | 2 | [RULE-META-001](invariants/RULE-META-001.md) | 메타데이터 필드 규칙 |
 | 3 | [RULE-MUST-001](invariants/RULE-MUST-001.md) | Must-Read 참조 규칙 |
 
-### 2단계: 대상 기능 (선택)
+### 2단계: 대상 기능 및 검증 (선택)
 
-구현할 기능의 REQ 문서를 읽고, 해당 문서의 `**Must-Read**` 필드에 명시된 문서들을 따라 읽습니다.
+1. 구현할 기능의 REQ 문서를 읽습니다.
+2. 해당 기능에 연결된 CQ 문서를 읽습니다. (있다면)
+3. REQ와 CQ가 `**Must-Read**`로 참조하는 RULE/ADR을 읽습니다.
 
 ## 🏷️ 폴더 구조
 
@@ -1011,9 +1082,10 @@ Adopt a formal Pending section only if at least two are true:
 |------|------|------|
 | `capabilities/` | "무엇을 만드는가?" | REQ-* (기능/행동) |
 | `invariants/` | "무엇이 항상 참인가?" | RULE-* (불변 규칙) |
+| `competencies/` | "무엇을 해결하는가?" | CQ-* (역량 질문/시나리오) |
 | `discussions/` | "어떻게 결정했는가?" | DISC-* (조율 기록) |
 
-## REQ vs RULE 빠른 판정
+## REQ vs RULE vs CQ 빠른 판정
 
 ```
 REQ (capabilities/)
@@ -1023,6 +1095,10 @@ REQ (capabilities/)
 RULE (invariants/)
   → "항상 ~이다 / ~는 금지" (불변 중심)
   → Scope/Violation/Examples 필수
+
+CQ (competencies/)
+  → "시스템은 ~에 답할 수 있는가?" (검증 중심)
+  → Question/Expected Answer/Traceability 필수
 ```
 
 ## 🔗 Quick Links
@@ -1032,6 +1108,7 @@ RULE (invariants/)
 
 ## ⚠️ 주의사항
 
+- `competencies/`는 **참조된 경우에만 읽습니다** (REQ/CQ 연결 시)
 - `discussions/`는 **기본적으로 읽지 않습니다** (명시적 참조 시만)
 - 각 REQ의 `**Must-Read**` 필드가 **읽기 우선순위의 권위**입니다
 """,
@@ -1464,7 +1541,7 @@ python memory_manager.py --guide
 ### Phase 3: MCP 연동 (선택)
 - [ ] MCP 서버 설정 확인 <!-- id:phase3.mcp_server -->
 - [ ] 클라이언트 연동 테스트 <!-- id:phase3.mcp_client -->
-- [ ] `intake()`, `plan_from_brief()`, `finalize_run()` 동작 확인 <!-- id:phase3.mcp_tools -->
+- [ ] `intake()`, `plan()`, `finish()` 동작 확인 <!-- id:phase3.mcp_tools -->
 
 ## 설정 완료 후
 
@@ -1473,8 +1550,8 @@ python memory_manager.py --guide
 | 명령어 | 설명 |
 |--------|------|
 | `intake("요청")` | 아이디어 → BRIEF 생성 |
-| `plan_from_brief("BRIEF-ID")` | BRIEF → RUN 생성 |
-| `finalize_run("RUN-ID", git_hash="...")` | Status 완료 + Git 증거 기록 |
+| `plan("BRIEF-ID")` | BRIEF → RUN 생성 |
+| `finish("RUN-ID", git_hash="...")` | Status 완료 + Git 증거 기록 |
 
 ## 도움이 필요하면
 
@@ -1814,7 +1891,8 @@ project_root/
 1. **P0**: 이 파일 (`01_CONVENTIONS.md`)
 2. **P0**: Target REQ의 `**Must-Read**` 필드
 3. **P1**: `02_REQUIREMENTS/invariants/` (전체)
-4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
+4. **P1.5**: `02_REQUIREMENTS/competencies/` (참조된 CQ만)
+5. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
 
 ### Execution Checklist
 1. [ ] CONVENTIONS의 Boundaries 확인
@@ -1966,18 +2044,29 @@ MCP_DEFINITIONS = {
             "Keeps required RUN metadata fields.",
         ],
     },
-    "finalize_run": {
-        "signature": "finalize_run(run_id)",
-        "summary": "Mark a RUN as completed and archive it.",
+    "finish": {
+        "signature": "finish(run_id, success=True, git_hash='')",
+        "summary": "Mark a RUN as completed with Git evidence.",
         "inputs": [
             "`run_id` (str): RUN ID.",
+            "`success` (bool): Whether the run succeeded.",
+            "`git_hash` (str): Git commit hash as evidence.",
         ],
         "outputs": [
-            "RUN moved to `04_TASK_LOGS/archive/` after validation.",
+            "RUN updated in `04_TASK_LOGS/active/` (no archive move).",
         ],
         "behavior": [
-            "Requires `--doctor` pass before completion.",
+            "Updates Status to Completed/Failed.",
+            "Records Git hash as evidence.",
+            "RUN stays in active/ (v3.4+ policy).",
         ],
+    },
+    "finalize_run": {
+        "signature": "finalize_run(run_id, success=True, git_hash='')",
+        "summary": "(Alias) See finish().",
+        "inputs": ["`run_id` (str)", "`success` (bool)", "`git_hash` (str)"],
+        "outputs": ["Same as finish()."],
+        "behavior": ["Alias for finish() - kept for backward compatibility."],
     },
     "create_disc_from_failure": {
         "signature": "create_disc_from_failure(context)",
@@ -2008,8 +2097,8 @@ MCP_DEFINITIONS = {
             "Use this to start a new feature or task."
         ],
     },
-    "plan_from_brief": {
-        "signature": "plan_from_brief(brief_id)",
+    "plan": {
+        "signature": "plan(brief_id)",
         "summary": "Create a RUN document from an existing BRIEF.",
         "inputs": [
             "`brief_id` (str): Target Brief ID."
@@ -2020,12 +2109,20 @@ MCP_DEFINITIONS = {
         ],
         "behavior": [
             "Creates a RUN document linked to the Brief.",
+            "Auto-creates/updates REQ documents.",
             "Moves workflow from Intake to Execution."
         ],
     },
+    "plan_from_brief": {
+        "signature": "plan_from_brief(brief_id)",
+        "summary": "(Alias) See plan().",
+        "inputs": ["`brief_id` (str)"],
+        "outputs": ["Same as plan()."],
+        "behavior": ["Alias for plan() - kept for backward compatibility."],
+    },
     "apply_req": {
         "signature": "apply_req(req_id, dry_run=False) (Deprecated)",
-        "summary": "(Deprecated) Use plan_from_brief instead.",
+        "summary": "(Deprecated) Use plan() instead.",
         "inputs": ["`req_id` (str)", "`dry_run` (bool)"],
         "outputs": ["Report dict"],
         "behavior": ["Triggers deprecation warning."],
@@ -2035,7 +2132,7 @@ MCP_DEFINITIONS = {
         "summary": "(Deprecated) One-shot orchestration.",
         "inputs": ["`req_id` (str)"],
         "outputs": ["State dict"],
-        "behavior": ["See plan_from_brief."],
+        "behavior": ["See plan()."],
     },
     "req_status": {
         "signature": "req_status(req_id)",
@@ -2122,6 +2219,7 @@ Boundaries (STRICT):
 
 ### P1 (Read for Context)
 - `02_REQUIREMENTS/invariants/` (all active)
+- `02_REQUIREMENTS/competencies/` (referenced CQs only)
 - Referenced ADR-* documents
 
 ### Default Skip
@@ -2227,6 +2325,7 @@ UPDATABLE_READMES = [
     "02_REQUIREMENTS/_index.md",
     "02_REQUIREMENTS/capabilities/README.md",
     "02_REQUIREMENTS/invariants/README.md",
+    "02_REQUIREMENTS/competencies/README.md",
     "02_REQUIREMENTS/discussions/README.md",
     "03_TECH_SPECS/README.md",
     "04_TASK_LOGS/README.md",

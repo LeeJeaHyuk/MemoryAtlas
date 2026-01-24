@@ -445,19 +445,38 @@ def intake(description: str, domain: str = "GEN") -> Dict[str, Any]:
 
 
 @mcp.tool()
-def plan_from_brief(brief_id: str) -> Dict[str, Any]:
+def plan(brief_id: str) -> Dict[str, Any]:
     """
     Create a RUN document from an existing BRIEF.
-    
+
+    This is the main planning function in the 3-Step Workflow:
+    1. Intake -> Creates BRIEF
+    2. Plan (this) -> Creates RUN from BRIEF
+    3. Finish -> Marks RUN as completed
+
     Args:
-        brief_id: The ID of the Brief (e.g., "BRIEF-GEN-001").
-    
+        brief_id: The ID of the Brief (e.g., "BRIEF-MCP-003").
+
     Returns:
         Dict with run_id and run_path.
     """
     automator = Automator()
-    path = automator.plan_from_brief(brief_id)
+    path = automator.plan(brief_id)
     return {"run_id": path.stem, "run_path": str(path)}
+
+
+@mcp.tool()
+def plan_from_brief(brief_id: str) -> Dict[str, Any]:
+    """
+    Alias for plan() - kept for backward compatibility.
+
+    Args:
+        brief_id: The ID of the Brief (e.g., "BRIEF-GEN-001").
+
+    Returns:
+        Dict with run_id and run_path.
+    """
+    return plan(brief_id)
 
 
 @mcp.tool()
@@ -710,24 +729,30 @@ def run_report(run_id: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def finalize_run(run_id: str, success: Optional[bool] = True) -> Dict[str, Any]:
+def finish(run_id: str, success: Optional[bool] = True, git_hash: Optional[str] = "") -> Dict[str, Any]:
     """
-    Mark a RUN as completed and archive it.
-    
-    Updates state machine to COMPLETED.
-    
+    Mark a RUN as completed with evidence.
+
+    This is the final step in the 3-Step Workflow:
+    1. Intake -> Creates BRIEF
+    2. Plan -> Creates RUN from BRIEF
+    3. Finish (this) -> Marks RUN as completed with Git evidence
+
+    RUN remains in active/ (no archive move per v3.4 policy).
+
     Args:
-        run_id: RUN ID (e.g., "RUN-REQ-VALID-001-step-01")
+        run_id: RUN ID (e.g., "RUN-BRIEF-MCP-003-step-01")
         success: Whether the run succeeded
-    
+        git_hash: Git commit hash as evidence (optional)
+
     Returns:
-        Dict with archived_path and final state
+        Dict with path and final state
     """
     from core.state import (
-        StateManager, 
+        StateManager,
         STATE_READY_TO_FINALIZE, STATE_COMPLETED, STATE_FAILED,
     )
-    
+
     # Extract req_id/brief_id from run_id
     # Formats:
     #   RUN-REQ-XXX-NNN-step-NN -> REQ-XXX-NNN
@@ -735,53 +760,70 @@ def finalize_run(run_id: str, success: Optional[bool] = True) -> Dict[str, Any]:
     parts = run_id.split("-")
     if len(parts) >= 4 and parts[0] == "RUN":
         if parts[1] == "REQ":
-             req_id = "-".join(parts[1:4])  # REQ-XXX-NNN
+            req_id = "-".join(parts[1:4])  # REQ-XXX-NNN
         elif parts[1] == "BRIEF":
-             req_id = "-".join(parts[1:4])  # BRIEF-XXX-NNN (treated as req_id for notification purpose)
+            req_id = "-".join(parts[1:4])  # BRIEF-XXX-NNN
         else:
-             req_id = None
+            req_id = None
     else:
         req_id = None
-    
+
     automator = Automator()
-    
+
     if success:
-        archived_path = automator.finalize_run(run_id, success=True)
-        
+        result_path = automator.finish(run_id, success=True, git_hash=git_hash or "")
+
         # Update state if we have req_id
         if req_id:
             sm = StateManager(req_id)
             state = sm.load()
             if state and state["state"] == STATE_READY_TO_FINALIZE:
                 sm.transition(STATE_COMPLETED)
-        
+
         return {
             "state": STATE_COMPLETED,
             "run_id": run_id,
             "req_id": req_id,
-            "archived_path": str(archived_path),
+            "path": str(result_path),
+            "git_hash": git_hash,
             "next_action": "done",
-            "description": "Run finalized successfully. Requirement implementation complete.",
+            "description": "Run finalized successfully. RUN stays in active/.",
         }
     else:
         # Failed finalization
-        archived_path = automator.finalize_run(run_id, success=False)
-        
+        result_path = automator.finish(run_id, success=False, git_hash=git_hash or "")
+
         if req_id:
             sm = StateManager(req_id)
             sm.transition(
                 STATE_FAILED,
                 error={"errors": [{"type": "finalization", "message": "Run marked as failed"}]},
             )
-        
+
         return {
             "state": STATE_FAILED,
             "run_id": run_id,
             "req_id": req_id,
-            "archived_path": str(archived_path),
+            "path": str(result_path),
             "next_action": "create_disc",
             "description": "Run finalized as failed. Consider creating a discussion document.",
         }
+
+
+@mcp.tool()
+def finalize_run(run_id: str, success: Optional[bool] = True, git_hash: Optional[str] = "") -> Dict[str, Any]:
+    """
+    Alias for finish() - kept for backward compatibility.
+
+    Args:
+        run_id: RUN ID (e.g., "RUN-REQ-VALID-001-step-01")
+        success: Whether the run succeeded
+        git_hash: Git commit hash as evidence (optional)
+
+    Returns:
+        Dict with path and final state
+    """
+    return finish(run_id, success, git_hash)
 
 
 @mcp.tool()
