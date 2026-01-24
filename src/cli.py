@@ -81,6 +81,7 @@ Boundaries (STRICT):
 
 import argparse
 import sys
+from pathlib import Path
 
 from core.bootstrap import bootstrap_init
 from core.bootstrap_mcp import bootstrap_mcp
@@ -95,9 +96,10 @@ from core.checks import (
 )
 from core.automation import Automator
 from core.config import CURRENT_VERSION, ROOT_DIR
-from core.status import status_report
+from core.status import status_report, list_runs
 from core.update import init_or_update
 from core.reverse import generate_reverse_prompt
+from utils.fs import ensure_structure, update_onboarding_guide, update_onboarding_prompt
 
 def parse_args() -> "argparse.Namespace":
     parser = argparse.ArgumentParser(
@@ -108,6 +110,8 @@ Examples:
   python memory_manager.py              # Initialize/update system
   python memory_manager.py --doctor     # Run all checks
   python memory_manager.py --status     # Show task summary
+  python memory_manager.py --guide      # Show onboarding guide and prompt
+  python memory_manager.py --refresh-guide  # Regenerate onboarding guide from state
   python memory_manager.py --dry-run    # Preview changes
         """
     )
@@ -154,6 +158,16 @@ Examples:
         "--reverse",
         action="store_true",
         help="Generate reverse engineering prompt for partial code analysis.",
+    )
+    update_group.add_argument(
+        "--guide",
+        action="store_true",
+        help="Show onboarding guide location and output LLM prompt for interactive setup.",
+    )
+    update_group.add_argument(
+        "--refresh-guide",
+        action="store_true",
+        help="Regenerate onboarding guide from state without full update.",
     )
     update_group.add_argument(
         "--focus",
@@ -228,6 +242,13 @@ Examples:
         metavar="N",
         help="Number of recent active tasks to show (default: 5).",
     )
+    status_group.add_argument(
+        "--list-runs",
+        nargs="?",
+        const="all",
+        metavar="STATUS",
+        help="List RUN documents. Filter by status: active, completed, failed, all (default: all).",
+    )
 
     parser.add_argument(
         "--dry-run",
@@ -280,6 +301,50 @@ def main() -> int:
         generate_reverse_prompt(ROOT_DIR, args.focus)
         return 0
 
+    if args.guide:
+        init_or_update(dry_run=args.dry_run, force_migrate=args.migrate)
+
+        memory_root = Path(ROOT_DIR)
+        guide_path = memory_root / "GETTING_STARTED.md"
+        prompt_path = memory_root / "00_SYSTEM" / "ONBOARDING_PROMPT.md"
+
+        print("\n" + "=" * 60)
+        print("🚀 MemoryAtlas 온보딩 가이드")
+        print("=" * 60 + "\n")
+
+        print("📖 가이드 문서 위치:")
+        print(f"   - 사용자 가이드: {guide_path}")
+        print(f"   - 온보딩 프롬프트: {prompt_path}\n")
+
+        missing = []
+        if not guide_path.exists():
+            missing.append(str(guide_path))
+        if not prompt_path.exists():
+            missing.append(str(prompt_path))
+
+        if missing:
+            print("⚠️  온보딩 파일이 없습니다:")
+            for item in missing:
+                print(f"   - {item}")
+            if args.dry_run:
+                print("    --dry-run 모드라 파일이 생성되지 않았습니다.")
+                print("    다시 실행: python memory_manager.py --guide")
+            else:
+                print("    먼저 'python memory_manager.py'를 실행하여 .memory 폴더를 생성하세요.")
+            return 1
+
+        print("=" * 60)
+        print("📋 아래 프롬프트를 LLM에게 전달하세요:")
+        print("=" * 60 + "\n")
+        print(prompt_path.read_text(encoding="utf-8"))
+        return 0
+
+    if args.refresh_guide:
+        ensure_structure(ROOT_DIR)
+        update_onboarding_prompt(ROOT_DIR, dry_run=args.dry_run)
+        update_onboarding_guide(ROOT_DIR, dry_run=args.dry_run, force=True)
+        return 0
+
     run_checks = any([
         args.doctor,
         args.check,
@@ -316,11 +381,12 @@ def main() -> int:
     if args.status:
         status_report(ROOT_DIR, show_recent=args.recent)
 
+    if args.list_runs:
+        list_runs(ROOT_DIR, status_filter=args.list_runs)
+
     return exit_code
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
 

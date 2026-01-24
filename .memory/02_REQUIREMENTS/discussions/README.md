@@ -1,6 +1,6 @@
 # Discussions (Reference Layer)
 
-> **Template-Version**: 3.3
+> **Template-Version**: 3.4
 >
 > 사람-AI 조율 기록을 저장합니다.
 > **LLM은 기본적으로 이 폴더를 읽지 않습니다.**
@@ -21,7 +21,7 @@
 > **Related-REQ**: REQ-XXX-001 (or RULE-XXX-001)
 > **Date**: YYYY-MM-DD
 > **Participants**: (참여자)
-> **Template-Version**: 3.3
+> **Template-Version**: 3.4
 
 ---
 

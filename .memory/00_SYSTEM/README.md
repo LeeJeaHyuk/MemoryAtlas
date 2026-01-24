@@ -7,6 +7,7 @@
 >
 > ### Overwrite Policy
 > - **AGENT_RULES.md**: 시스템 업데이트 시 덮어쓰기됨
+> - **ONBOARDING_PROMPT.md**: 시스템 업데이트 시 덮어쓰기됨
 > - **scripts/**: 시스템 업데이트 시 덮어쓰기됨
 > - **mcp/**: auto-generated MCP definitions (overwritten on update)
 > - 사용자/에이전트 수정 -> 다음 업데이트에서 원복
@@ -25,4 +26,4 @@
 ## Version Info
 
 - **Manager Version**: 3.4.1
-- **Template Version**: 3.3
+- **Template Version**: 3.4

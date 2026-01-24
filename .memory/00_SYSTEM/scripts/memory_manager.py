@@ -1,7 +1,10 @@
 
+import json
 import os
+import re
 import shutil
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 
 from core.config import (
     CURRENT_VERSION,
@@ -9,7 +12,21 @@ from core.config import (
     DOC_TEMPLATES,
     MCP_DEFINITIONS,
     SYSTEM_TEMPLATES,
+    TEMPLATE_VERSION,
     UPDATABLE_READMES,
+)
+
+ONBOARDING_GUIDE_PATH = "GETTING_STARTED.md"
+ONBOARDING_PROMPT_REL_PATH = "00_SYSTEM/ONBOARDING_PROMPT.md"
+ONBOARDING_STATE_REL_PATH = "00_SYSTEM/state/onboarding.json"
+ONBOARDING_NOTE_PLACEHOLDERS = {"(자유롭게 기록)", "(작성 내용 없음)"}
+ONBOARDING_NOTES_RE = re.compile(
+    r"<!-- NOTES:BEGIN -->(.*?)<!-- NOTES:END -->", re.S
+)
+ONBOARDING_ID_RE = re.compile(r"<!-- id:([a-z0-9_.-]+) -->")
+ONBOARDING_CHECKBOX_RE = re.compile(
+    r"^(\s*- \[)(?P<mark>[ xX])(\] .+?<!-- id:(?P<id>[^ ]+) -->\s*)$",
+    re.M,
 )
 
 def write_file(path: str, content: str, dry_run: bool = False) -> None:
@@ -50,9 +67,167 @@ def ensure_structure(root: str) -> None:
     for folder in DIRS:
         os.makedirs(os.path.join(root, folder), exist_ok=True)
 
+def _current_date() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+def _extract_onboarding_ids(template: str) -> list[str]:
+    ids = ONBOARDING_ID_RE.findall(template)
+    return sorted(set(ids))
+
+def _normalize_notes(notes: str) -> str:
+    trimmed = notes.strip()
+    if not trimmed or trimmed in ONBOARDING_NOTE_PLACEHOLDERS:
+        return ""
+    return notes.strip("\n").rstrip()
+
+def _extract_notes(text: str) -> Optional[str]:
+    match = ONBOARDING_NOTES_RE.search(text)
+    if not match:
+        return None
+    return match.group(1).strip("\n")
+
+def load_onboarding_state(root: str, template: str) -> tuple[dict, bool, bool]:
+    """Load onboarding state and normalize missing fields."""
+    state_path = os.path.join(root, *ONBOARDING_STATE_REL_PATH.split("/"))
+    state_exists = os.path.exists(state_path)
+    state_changed = False
+
+    state: dict = {}
+    if state_exists:
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    state = data
+        except Exception:
+            state = {}
+
+    if "schema_version" not in state:
+        state["schema_version"] = 1
+        state_changed = True
+    if state.get("template_version") != TEMPLATE_VERSION:
+        state["template_version"] = TEMPLATE_VERSION
+        state_changed = True
+    if not isinstance(state.get("items"), dict):
+        state["items"] = {}
+        state_changed = True
+    if not isinstance(state.get("notes"), str):
+        state["notes"] = ""
+        state_changed = True
+    if not isinstance(state.get("last_updated"), str):
+        state["last_updated"] = "(TBD)"
+        state_changed = True
+
+    for item_id in _extract_onboarding_ids(template):
+        if item_id not in state["items"]:
+            state["items"][item_id] = False
+            state_changed = True
+
+    return state, state_changed, state_exists
+
+def sync_onboarding_state_from_guide(guide_text: str, state: dict) -> bool:
+    """Sync checkbox state and notes from existing guide content."""
+    changed = False
+    for match in ONBOARDING_CHECKBOX_RE.finditer(guide_text):
+        item_id = match.group("id")
+        done = match.group("mark").lower() == "x"
+        current = state["items"].get(item_id)
+        if current is None or current != done:
+            state["items"][item_id] = done
+            changed = True
+
+    notes = _extract_notes(guide_text)
+    if notes is not None:
+        normalized = _normalize_notes(notes)
+        if normalized != state.get("notes", ""):
+            state["notes"] = normalized
+            changed = True
+
+    return changed
+
+def _compute_onboarding_status(items: dict) -> str:
+    if not items:
+        return "Not Started"
+    total = len(items)
+    done = sum(1 for value in items.values() if value)
+    if done == 0:
+        return "Not Started"
+    if done == total:
+        return "Completed"
+    return "In Progress"
+
+def render_onboarding_guide(template: str, state: dict) -> str:
+    """Render the onboarding guide template with current state."""
+    def replace_checkbox(match: re.Match) -> str:
+        item_id = match.group("id")
+        done = state.get("items", {}).get(item_id, False)
+        mark = "x" if done else " "
+        return f"{match.group(1)}{mark}{match.group(3)}"
+
+    rendered = ONBOARDING_CHECKBOX_RE.sub(replace_checkbox, template)
+    status = _compute_onboarding_status(state.get("items", {}))
+    last_updated = state.get("last_updated") or "(TBD)"
+    rendered = rendered.replace("{STATUS}", status)
+    rendered = rendered.replace("{LAST_UPDATED}", last_updated)
+
+    notes = state.get("notes", "")
+    notes_body = _normalize_notes(notes)
+    if not notes_body:
+        notes_body = "(자유롭게 기록)"
+    rendered = ONBOARDING_NOTES_RE.sub(
+        f"<!-- NOTES:BEGIN -->\n{notes_body}\n<!-- NOTES:END -->",
+        rendered,
+    )
+    return rendered
+
+def update_onboarding_guide(root: str, dry_run: bool = False, force: bool = False) -> None:
+    """Update onboarding guide using template + state."""
+    template = DOC_TEMPLATES.get(ONBOARDING_GUIDE_PATH)
+    if not template:
+        return
+
+    state, state_changed, state_exists = load_onboarding_state(root, template)
+
+    guide_path = os.path.join(root, ONBOARDING_GUIDE_PATH)
+    if os.path.exists(guide_path):
+        guide_text = read_text(guide_path)
+        if sync_onboarding_state_from_guide(guide_text, state):
+            state_changed = True
+
+    if state_changed or not state_exists or force:
+        state["last_updated"] = _current_date()
+
+    if dry_run:
+        print(f"  - Would update onboarding guide: {ONBOARDING_GUIDE_PATH}")
+        if state_changed or not state_exists or force:
+            print(f"  - Would update onboarding state: {ONBOARDING_STATE_REL_PATH}")
+        return
+
+    if state_changed or not state_exists or force:
+        state_path = os.path.join(root, *ONBOARDING_STATE_REL_PATH.split("/"))
+        write_file(state_path, json.dumps(state, indent=2, sort_keys=True) + "\n")
+
+    rendered = render_onboarding_guide(template, state)
+    write_file(guide_path, rendered)
+    print(f"  * Updated onboarding guide: {ONBOARDING_GUIDE_PATH}")
+
+def update_onboarding_prompt(root: str, dry_run: bool = False) -> None:
+    """Update onboarding prompt in 00_SYSTEM for manual refresh."""
+    content = DOC_TEMPLATES.get(ONBOARDING_PROMPT_REL_PATH)
+    if not content:
+        return
+    if dry_run:
+        print(f"  - Would update onboarding prompt: {ONBOARDING_PROMPT_REL_PATH}")
+        return
+    prompt_path = os.path.join(root, *ONBOARDING_PROMPT_REL_PATH.split("/"))
+    write_file(prompt_path, content)
+    print(f"  * Updated onboarding prompt: {ONBOARDING_PROMPT_REL_PATH}")
+
 def create_missing_docs(root: str, dry_run: bool = False) -> None:
     """Create missing template documents."""
     for rel_path, content in DOC_TEMPLATES.items():
+        if rel_path == ONBOARDING_GUIDE_PATH:
+            continue
         path = os.path.join(root, rel_path)
         if os.path.exists(path):
             continue

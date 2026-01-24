@@ -3,7 +3,7 @@ import re
 
 CURRENT_VERSION = "3.4.1"
 ROOT_DIR = ".memory"
-TEMPLATE_VERSION = "3.3"  # Template schema version (Context Bootstrapping)
+TEMPLATE_VERSION = "3.4"  # Template schema version (Quick Start + Direct Execute)
 
 # ============================================================================
 # STRUCTURE (v3.0) - Capabilities & Invariants Edition
@@ -56,7 +56,6 @@ LINT_DIRS = [
     "02_REQUIREMENTS/capabilities",
     "02_REQUIREMENTS/invariants",
     "02_REQUIREMENTS/discussions",
-    "02_REQUIREMENTS/discussions/briefs",
     "04_TASK_LOGS/active",
 ]
 
@@ -99,7 +98,7 @@ REQ_ID_PATTERN = re.compile(r"^REQ-([A-Z]+)-(\d{3})$")
 RULE_ID_PATTERN = re.compile(r"^RULE-([A-Z]+)-(\d{3})$")
 ADR_ID_PATTERN = re.compile(r"^ADR-(\d{3})$")
 DISC_ID_PATTERN = re.compile(r"^DISC-([A-Z]+)-(\d{3})$")
-RUN_ID_PATTERN = re.compile(r"^RUN-(REQ|RULE)-([A-Z]+)-(\d{3})-step-(\d{2})$")
+RUN_ID_PATTERN = re.compile(r"^RUN-(REQ|RULE|BRIEF)-([A-Z]+)-(\d{3})-step-(\d{2})$")
 BRIEF_ID_PATTERN = re.compile(r"^BRIEF-([A-Z]+)-(\d{3})$")
 
 # Regex patterns
@@ -119,7 +118,7 @@ MUST_READ_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 # P0 fix: Templates use # [REQ-...] (H1), so regex must match #{1,3}
 REQ_HEADER_RE = re.compile(r"^#{1,3}\s+\[(REQ-[A-Z]+-\d{3})\]", re.M)
 RULE_HEADER_RE = re.compile(r"^#{1,3}\s+\[(RULE-[A-Z]+-\d{3})\]", re.M)
-RUN_HEADER_RE = re.compile(r"^#{1,3}\s+\[(RUN-(?:REQ|RULE)-[A-Z]+-\d{3}-step-\d{2})\]", re.M)
+RUN_HEADER_RE = re.compile(r"^#{1,3}\s+\[(RUN-(?:REQ|RULE|BRIEF)-[A-Z]+-\d{3}-step-\d{2})\]", re.M)
 DISC_HEADER_RE = re.compile(r"^#{1,3}\s+\[(DISC-[A-Z]+-\d{3})\]", re.M)
 BRIEF_HEADER_RE = re.compile(r"^#{1,3}\s+\[(BRIEF-[A-Z]+-\d{3})\]", re.M)
 
@@ -177,13 +176,102 @@ REQ vs RULE 판정:
 3. **P1**: `02_REQUIREMENTS/invariants/` (all active)
 4. **P2**: `98_KNOWLEDGE/` (if complex feature)
 
-### Execution Checklist
-1. [ ] CONVENTIONS의 **Boundaries** 확인
-2. [ ] Target REQ 읽기
-3. [ ] Must-Read 문서 읽기
-4. [ ] RUN 문서 작성 (Self-Check 포함)
-5. [ ] 구현 → 테스트 → 검증
-6. [ ] Self-Check 통과 후 RUN 완료 처리
+## 3-Phase Workflow (Intake → Plan → Execute)
+
+1. **Intake**: 생각/메모 → BRIEF 생성 (`02_REQUIREMENTS/discussions/briefs/`)
+2. **Plan**: BRIEF → RUN 생성 (`04_TASK_LOGS/active/`)
+3. **Execute**: RUN 기준 구현 → Status 업데이트 + Git 증거
+
+> MCP 도구: `intake()` → `plan_from_brief()` → `finalize_run()`
+
+### Execution Checklist (3-Phase Workflow)
+1. [ ] **Intake**: BRIEF 생성 및 검토
+2. [ ] **Plan**: RUN 문서 생성 및 검토
+3. [ ] 구현 → 테스트 → Git 커밋
+4. [ ] **Execute**: Self-Check 통과 후 finalize_run (Status → Completed)
+
+## Quick Start (MCP 도구 사용법)
+
+### 1. "Intake 해줘"
+```python
+intake("사용자 요청 내용", domain="GEN")
+```
+→ 반환: BRIEF 파일 경로 (예: `BRIEF-GEN-001`)
+
+### 2. "Plan 만들어줘"
+```python
+plan_from_brief("BRIEF-GEN-001")
+```
+→ 반환: RUN ID (예: `RUN-BRIEF-GEN-001-step-01`)
+
+### 3. "Run 해줘"
+1. RUN 문서의 Steps 실행
+2. Self-Check 확인
+3. Git 커밋 생성
+4. 완료 후:
+```python
+finalize_run("RUN-BRIEF-GEN-001-step-01", git_hash="abc123")
+```
+→ Status가 Completed로 변경 + Git 증거 기록
+
+### 예시 대화
+```
+User: "로그인 기능 추가해줘. intake 해"
+LLM:  intake("로그인 기능 추가", domain="AUTH") 호출
+LLM:  BRIEF 생성 → 사용자 검토 요청
+User: "plan 만들어"
+LLM:  plan_from_brief("BRIEF-AUTH-001") 호출
+LLM:  RUN 생성 → 사용자 검토 요청
+User: "run 해"
+LLM:  RUN Steps 실행 → Self-Check → finalize_run()
+```
+
+## Manual Fallback (MCP 없이)
+
+MCP 도구 사용이 불가능하거나 원하지 않는 경우, 동일한 워크플로우를 수동으로 수행할 수 있습니다.
+
+### 1. BRIEF 직접 작성
+- **템플릿**: `02_REQUIREMENTS/discussions/briefs/README.md` 참조
+- **위치**: `02_REQUIREMENTS/discussions/briefs/BRIEF-DOMAIN-001.md`
+- **필수 섹션**: User Request, Intent Summary, Affected Artifacts, Proposed Changes, Verification Criteria
+
+### 2. REQ/RUN 직접 작성
+- **REQ 템플릿**: `02_REQUIREMENTS/capabilities/README.md` 참조
+- **REQ 위치**: `02_REQUIREMENTS/capabilities/REQ-DOMAIN-001.md`
+- **RUN 템플릿**: `04_TASK_LOGS/active/README.md` 참조
+- **RUN 위치**: `04_TASK_LOGS/active/RUN-BRIEF-DOMAIN-001-step-01.md`
+
+### 3. 완료 처리 (수동)
+- RUN 문서의 Status를 `Completed` 또는 `Failed`로 변경
+- Git 커밋 해시를 Evidence에 기록
+- RUN은 `active/`에 유지 (이동 없음)
+
+> ⚠️ MCP 도구 사용이 권장됩니다. 수동 프로세스는 동일한 결과를 만들지만 더 많은 작업이 필요합니다.
+
+## Direct Execute (간단한 작업)
+
+다음 조건을 **모두** 만족하면 BRIEF/RUN 없이 바로 실행 가능:
+
+### Skip 가능 조건
+- 단일 파일 수정
+- 아키텍처 영향 없음
+- 명백한 변경 (typo 수정, 단순 버그 픽스)
+- 새 의존성 없음
+- 검증이 자명함 (에러 해결 = 성공)
+
+### 예시
+| 작업 | 경로 |
+|------|------|
+| README 오타 수정 | ✅ Direct Execute |
+| 로그 메시지 추가 | ✅ Direct Execute |
+| 단순 import 수정 | ✅ Direct Execute |
+| 새 API 엔드포인트 | ❌ 3-Phase 필요 |
+| 인증 로직 변경 | ❌ 3-Phase 필요 |
+| 다중 파일 리팩토링 | ❌ 3-Phase 필요 |
+
+### 주의사항
+- Skip 시에도 **커밋 메시지에 변경 이유 명시**
+- 불확실하면 → Intake 진행 권장
 
 ### What NOT to Read by Default
 - `02_REQUIREMENTS/discussions/` - Only when explicitly referenced
@@ -410,13 +498,11 @@ project_root/
 3. **P1**: `02_REQUIREMENTS/invariants/` (전체)
 4. **P2**: `98_KNOWLEDGE/` (복잡한 기능 시)
 
-### Execution Checklist
-1. [ ] CONVENTIONS의 Boundaries 확인
-2. [ ] Target REQ 읽기
-3. [ ] Must-Read 문서 읽기
-4. [ ] RUN 문서 작성 (Self-Check 포함)
-5. [ ] 구현 → 테스트 → 검증
-6. [ ] RUN 문서 완료 처리
+### Execution Checklist (3-Phase Workflow)
+1. [ ] **Intake**: BRIEF 생성 및 검토
+2. [ ] **Plan**: RUN 문서 생성 및 검토
+3. [ ] 구현 → 테스트 → 검증
+4. [ ] **Execute**: Self-Check 통과 후 finalize_run
 """,
 
     "01_PROJECT_CONTEXT/04_AGENT_GUIDE.md": """# Agent Guide
@@ -426,9 +512,14 @@ project_root/
 - Prefer .memory documents over ad-hoc assumptions.
 
 ## Update Rules
-- Update 02_SERVICES when requirements or specs change.
+- Update 02_REQUIREMENTS when requirements or specs change.
 - Update 01_PROJECT_CONTEXT when architecture or scope changes.
-- Update 03_MANAGEMENT after implementing or deferring work.
+- Update 03_TECH_SPECS after implementing or deferring work.
+
+## 3-Phase Workflow
+1. **Intake**: Idea -> BRIEF
+2. **Plan**: BRIEF -> RUN
+3. **Execute**: RUN -> Code/Test -> Archive
 
 ## Documentation Standard: Structured Natural Language
 Use the following rules so humans and LLMs can both parse and act on documents reliably.
@@ -847,6 +938,48 @@ Adopt a formal Pending section only if at least two are true:
 3. **Archive 정책**: 오래된 논의는 `99_ARCHIVE/discussions/`로 이동
 """,
 
+    "02_REQUIREMENTS/discussions/briefs/README.md": f"""# Briefs (Intake Layer)
+
+> **Template-Version**: {TEMPLATE_VERSION}
+>
+> **Idea/User Request**를 빠르고 가볍게 기록하는 곳입니다.
+> `intake()` 명령어를 통해 생성됩니다.
+
+## Workflow
+
+1. `intake("설명")` -> `BRIEF-XXX-001.md` 생성
+2. BRIEF 검토 및 구체화 (LLM/Human)
+3. `plan_from_brief("BRIEF-ID")` -> `RUN` 및 `REQ` 생성
+
+## Template
+
+```markdown
+# [BRIEF-DOMAIN-001] Title
+
+> **ID**: BRIEF-DOMAIN-001
+> **Date**: YYYY-MM-DD
+> **Status**: Active
+
+## 1. User Request (원본 요청)
+(사용자의 원래 텍스트 보존)
+
+## 2. Intent Summary (의도 요약)
+- **Goal**: ...
+- **Problem**: ...
+
+## 3. Affected Artifacts
+- Create: ...
+- Modify: ...
+
+## 4. Proposed Changes
+1. ...
+2. ...
+
+## 5. Verification Criteria
+- [ ] ...
+```
+""",
+
     # =========================================================================
     # 02_REQUIREMENTS/_index.md (Human Entry Point)
     # =========================================================================
@@ -1100,15 +1233,26 @@ Keep the REQ as the full contract; use DISC or a new Draft REQ for pending work.
 
 > **Template-Version**: {TEMPLATE_VERSION}
 
+## Dashboard (자동 갱신)
+
+| Status | RUN ID | Started | Summary | Git |
+|--------|--------|---------|---------|-----|
+| (자동 생성) | | | | |
+
+> 이 테이블은 `--runs` 명령 또는 시스템 업데이트 시 자동 갱신됩니다.
+
 ## RUN Document Template
 
 ```markdown
 # [RUN-REQ-XXX-001-step-01] Step Title
 
 > **ID**: RUN-REQ-XXX-001-step-01
-> **Status**: [Active | Blocked | Done]
+> **Summary**: (사람용 1줄 요약)
+> **Status**: Active | Completed | Failed
 > **Started**: YYYY-MM-DD
-> **Input**: REQ-XXX-001, RULE-YYY-001, 01_CONVENTIONS.md
+> **Completed**: (완료 시 자동 기록)
+> **Git**: (커밋 해시 또는 no-commit)
+> **Input**: BRIEF-XXX-001, REQ-XXX-001
 > **Verification**: (성공 조건 - 한 줄 요약)
 > **Template-Version**: {TEMPLATE_VERSION}
 
@@ -1149,6 +1293,7 @@ Keep the REQ as the full contract; use DISC or a new Draft REQ for pending work.
 - Tests: (what passed)
 - Commands: (what was executed)
 - Code references: (files/functions showing current behavior)
+- **Git**: (커밋 해시 기록)
 
 ## Output
 
@@ -1165,8 +1310,15 @@ Keep the REQ as the full contract; use DISC or a new Draft REQ for pending work.
 3. **Verification 명시**: 성공 조건 + Self-Check 체크리스트
 4. **Output 기록**: 생성/수정 파일 목록
 5. **Self-Check 필수**: 테스트, Boundary, Spec 일치 확인
-6. **Scope ??**: In Scope / Out of Scope? ?? ?? ??
-7. **Evidence ??**: ???/???/?? ?? ??""",
+6. **Scope 명확화**: In Scope / Out of Scope 구분 필수
+7. **Evidence 확보**: Git 커밋 해시 필수 기록
+
+## Archive 정책 (v3.4+)
+
+- **RUN은 이동하지 않음**: 모든 RUN은 `active/`에 유지
+- **완료 표시**: Status 메타데이터로만 관리 (Active → Completed/Failed)
+- **증거**: Git 커밋 해시가 유일한 증거
+- **가독성**: 이 README의 Dashboard 테이블로 조회""",
 
     "04_TASK_LOGS/archive/README.md": f"""# Archived Tasks
 
@@ -1257,6 +1409,7 @@ archive/
 >
 > ### Overwrite Policy
 > - **AGENT_RULES.md**: 시스템 업데이트 시 덮어쓰기됨
+> - **ONBOARDING_PROMPT.md**: 시스템 업데이트 시 덮어쓰기됨
 > - **scripts/**: 시스템 업데이트 시 덮어쓰기됨
 > - **mcp/**: auto-generated MCP definitions (overwritten on update)
 > - 사용자/에이전트 수정 -> 다음 업데이트에서 원복
@@ -1276,6 +1429,168 @@ archive/
 
 - **Manager Version**: {CURRENT_VERSION}
 - **Template Version**: {TEMPLATE_VERSION}""",
+
+    # =========================================================================
+    # GETTING_STARTED.md (User-facing Guide)
+    # =========================================================================
+    "GETTING_STARTED.md": f"""# 🚀 MemoryAtlas 시작하기
+
+> **Version**: {CURRENT_VERSION} | **Template**: {TEMPLATE_VERSION}
+>
+> 이 문서는 MemoryAtlas를 처음 사용하는 사용자를 위한 설정 가이드입니다.
+
+## Quick Start
+
+```bash
+# 1. 온보딩 시작 (대화형 설정)
+python memory_manager.py --guide
+
+# 2. 출력된 프롬프트를 LLM에게 전달
+# 3. LLM의 질문에 답하며 설정 완료
+```
+
+## 설정 체크리스트
+
+### Phase 1: 프로젝트 기본 정보
+- [ ] 프로젝트 이름 설정 <!-- id:phase1.project_name -->
+- [ ] 프로젝트 목표 정의 (`01_PROJECT_CONTEXT/00_GOALS.md`) <!-- id:phase1.project_goal -->
+- [ ] 기술 스택 결정 <!-- id:phase1.tech_stack -->
+
+### Phase 2: 개발 규칙 설정
+- [ ] 코딩 컨벤션 정의 (`01_PROJECT_CONTEXT/01_CONVENTIONS.md`) <!-- id:phase2.coding_style -->
+- [ ] Boundaries 설정 (금지 사항) <!-- id:phase2.boundaries -->
+- [ ] 테스트 정책 결정 <!-- id:phase2.testing_policy -->
+
+### Phase 3: MCP 연동 (선택)
+- [ ] MCP 서버 설정 확인 <!-- id:phase3.mcp_server -->
+- [ ] 클라이언트 연동 테스트 <!-- id:phase3.mcp_client -->
+- [ ] `intake()`, `plan_from_brief()`, `finalize_run()` 동작 확인 <!-- id:phase3.mcp_tools -->
+
+## 설정 완료 후
+
+설정이 완료되면 다음 명령어를 사용할 수 있습니다:
+
+| 명령어 | 설명 |
+|--------|------|
+| `intake("요청")` | 아이디어 → BRIEF 생성 |
+| `plan_from_brief("BRIEF-ID")` | BRIEF → RUN 생성 |
+| `finalize_run("RUN-ID", git_hash="...")` | Status 완료 + Git 증거 기록 |
+
+## 도움이 필요하면
+
+- 📖 [README.md](../README.md) - 전체 시스템 이해
+- 📋 [00_INDEX.md](00_INDEX.md) - 문서 네비게이션
+- 🔧 `python memory_manager.py --doctor` - 시스템 검증
+
+## 온보딩 상태
+
+> **Status**: {{STATUS}}
+> **Last Updated**: {{LAST_UPDATED}}
+
+## 사용자 메모
+<!-- NOTES:BEGIN -->
+(자유롭게 기록)
+<!-- NOTES:END -->
+""",
+
+    # =========================================================================
+    # 00_SYSTEM/ONBOARDING_PROMPT.md (CLI Reference for LLM)
+    # =========================================================================
+    "00_SYSTEM/ONBOARDING_PROMPT.md": f"""# MemoryAtlas 온보딩 프롬프트
+
+> **Version**: {CURRENT_VERSION}
+>
+> 이 파일은 `--guide` 명령 시 LLM에게 전달되는 온보딩 프롬프트입니다.
+
+---
+
+## 🤖 LLM 지시사항
+
+당신은 MemoryAtlas 프로젝트 설정을 도와주는 온보딩 어시스턴트입니다.
+사용자가 이 프롬프트를 전달하면, 아래 단계에 따라 대화하며 설정을 완료하세요.
+
+### 진행 규칙
+1. 시작 시 `GETTING_STARTED.md`를 읽고 Status/체크리스트를 확인한 뒤, 미완료 단계부터 이어서 진행하세요
+2. 한 번에 1-2개 질문만 하세요
+3. 사용자 답변을 받으면 해당 파일에 직접 반영하세요
+4. 각 Phase 완료 시 `GETTING_STARTED.md`의 체크리스트와 Status/Last Updated를 업데이트하세요
+5. 체크리스트 변경 시 `00_SYSTEM/state/onboarding.json`도 함께 갱신하세요
+6. 모든 Phase 완료 시 축하 메시지와 다음 단계 안내
+
+---
+
+## Phase 1: 프로젝트 기본 정보
+
+### Q1. 프로젝트 이름
+> "이 프로젝트의 이름은 무엇인가요?"
+
+→ 반영 위치: `01_PROJECT_CONTEXT/00_GOALS.md` > Name
+
+### Q2. 프로젝트 목표
+> "이 프로젝트가 해결하려는 문제는 무엇인가요? 한 문장으로 설명해주세요."
+
+→ 반영 위치: `01_PROJECT_CONTEXT/00_GOALS.md` > One-Line Summary
+
+### Q3. 기술 스택
+> "사용할 주요 기술 스택은 무엇인가요? (예: Python, TypeScript, React 등)"
+
+→ 반영 위치: `01_PROJECT_CONTEXT/00_GOALS.md` > Tech Stack
+
+---
+
+## Phase 2: 개발 규칙 설정
+
+### Q4. 코딩 스타일
+> "선호하는 코딩 스타일이 있나요? (예: PEP8, ESLint, Prettier 등)"
+
+→ 반영 위치: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` > Coding Style
+
+### Q5. Boundaries (금지 사항)
+> "이 프로젝트에서 절대 해서는 안 되는 것이 있나요? (예: 특정 라이브러리 사용 금지, 특정 패턴 금지)"
+
+→ 반영 위치: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` > Boundaries
+
+### Q6. 테스트 정책
+> "테스트는 어떻게 진행할 예정인가요? (예: pytest, jest, 커버리지 목표 등)"
+
+→ 반영 위치: `01_PROJECT_CONTEXT/01_CONVENTIONS.md` > Testing Policy
+
+---
+
+## Phase 3: MCP 연동 확인 (선택)
+
+### Q7. MCP 사용 여부
+> "MCP(Model Context Protocol) 도구를 사용할 예정인가요? (intake, plan, run 자동화)"
+
+- Yes → MCP 설정 안내 진행
+- No → Phase 완료
+
+### Q8. MCP 테스트 (Yes인 경우)
+> "MCP 서버가 정상 동작하는지 확인해보겠습니다."
+
+실행: `python memory_manager.py --mcp-check`
+
+---
+
+## 완료 시 행동
+
+1. `GETTING_STARTED.md`의 모든 체크박스를 [x]로 변경
+2. `GETTING_STARTED.md`의 Status를 "Completed"로 변경하고 Last Updated를 갱신
+3. `00_SYSTEM/state/onboarding.json`의 항목을 Completed로 갱신
+4. 사용자에게 다음 안내:
+   - "설정이 완료되었습니다! 이제 'intake 해줘'로 첫 작업을 시작해보세요."
+
+---
+
+## 현재 진행 상태
+
+> 실제 진행 상태는 `GETTING_STARTED.md`에서 관리합니다. 이 섹션은 참고용입니다.
+
+- Phase 1: [ ] Not Started
+- Phase 2: [ ] Not Started
+- Phase 3: [ ] Not Started
+- Overall: [ ] Not Started
+""",
 }
 
 # ============================================================================
@@ -1900,6 +2215,7 @@ All three must match.
 
 SYSTEM_TEMPLATES = {
     "00_SYSTEM/AGENT_RULES.md": AGENT_RULES_TEMPLATE,
+    "00_SYSTEM/ONBOARDING_PROMPT.md": DOC_TEMPLATES["00_SYSTEM/ONBOARDING_PROMPT.md"],
 }
 
 # README files that should be updated on version upgrade

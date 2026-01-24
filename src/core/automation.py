@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.config import REQ_ID_PATTERN, ROOT_DIR, TEMPLATE_VERSION
 
 META_RE = re.compile(r"> \*\*(.+?)\*\*:\s*(.+)")
-AFFECTED_LINE_RE = re.compile(r"^\s*-\s*(Modify|Create|Delete)\s*:\s*(.+)$", re.I)
+AFFECTED_LINE_RE = re.compile(r"^\s*-\s*\*{0,2}(Modify|Create|Delete|Read)\*{0,2}\s*:\s*(.+)$", re.I)
 MD_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 
 
@@ -183,23 +183,38 @@ class Automator:
         run_path.write_text(self._run_content(run_id, req_id, spec_ref), encoding="utf-8")
         return run_path
 
-    def finalize_run(self, run_id: str, success: bool = True) -> Path:
-        """Move RUN from active to archive and record status."""
+    def finalize_run(self, run_id: str, success: bool = True, git_hash: str = "") -> Path:
+        """Update RUN status and record evidence. RUN remains in active (no archive move).
+
+        Args:
+            run_id: The RUN document ID
+            success: Whether the run was successful
+            git_hash: Git commit hash as evidence (optional, can be 'no-commit')
+
+        Returns:
+            Path to the updated RUN document (stays in active/)
+        """
         source = self.run_dir / f"{run_id}.md"
         if not source.exists():
             raise FileNotFoundError(f"RUN not found: {run_id}")
         text = source.read_text(encoding="utf-8")
+
+        # Update metadata
         text = self._update_meta_line(text, "Status", "Completed" if success else "Failed")
         text = self._update_meta_line(text, "Completed", self._now_date())
+        if git_hash:
+            text = self._update_meta_line(text, "Git", git_hash)
+
+        # Add result note
         note = "\n## Result\n"
         note += "Success\n" if success else "Failure - requires follow-up\n"
+        if git_hash:
+            note += f"\n**Git Evidence**: `{git_hash}`\n"
+
         source.write_text(text + note, encoding="utf-8")
-        archive_month = datetime.utcnow().strftime("%Y-%m")
-        target_dir = self.archive_dir / archive_month
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target = target_dir / source.name
-        shutil.move(str(source), str(target))
-        return target
+
+        # No archive move - RUN stays in active/
+        return source
 
     def create_disc_from_failure(self, target_id: str, error_log: str) -> Path:
         """Create a DISC entry describing the failure."""
@@ -392,15 +407,25 @@ class Automator:
             f"> **Date**: {date_str}\n"
             f"> **Status**: Active\n"
             f"> **Template-Version**: {TEMPLATE_VERSION}\n\n"
-            "## 1. Intent Summary (의도 요약)\n"
-            f"{description}\n\n"
-            "## 2. Affected Artifacts (영향받는 문서)\n"
-            "- Modify: 02_REQUIREMENTS/capabilities/REQ-XXX-001.md\n"
-            "- Create: 02_REQUIREMENTS/invariants/RULE-YYY-001.md\n\n"
-            "## 3. Proposed Changes (변경 제안)\n"
-            "- [ ] Define scope of change. (변경 범위 정의)\n\n"
-            "## 4. Verification Criteria (검증 기준)\n"
-            "- [ ] Define acceptance criteria. (인수 조건 정의)\n"
+            "## 1. User Request (원본 요청)\n"
+            f"> {description}\n\n"
+            "## 2. Intent Summary (의도 요약)\n"
+            "> ⚠️ **LLM 작업**: 아래 원본 요청의 핵심 의도를 분석하세요.\n\n"
+            "- **주요 목표**: (TBD - LLM이 분석)\n"
+            "- **해결할 문제**: (TBD - LLM이 분석)\n"
+            "- **CQ 형식 입력 허용**: 정리 안 된 생각/메모도 가능\n\n"
+            "## 3. Affected Artifacts (영향받는 문서)\n"
+            "> ⚠️ **반드시 구체적인 경로/링크로 작성** (REQ-XXX 금지)  \n"
+            "> 예: `02_REQUIREMENTS/capabilities/REQ-AUTH-001.md`\n\n"
+            "- **Modify**: (TBD - LLM이 분석)\n"
+            "- **Create**: (TBD - LLM이 분석)\n"
+            "- **Read**: (TBD - 참고 문서)\n\n"
+            "## 4. Proposed Changes (변경 제안)\n"
+            "> ⚠️ **LLM 작업**: 구체적인 변경사항을 나열하세요.\n\n"
+            "1. (TBD - 구체적 변경사항)\n\n"
+            "## 5. Verification Criteria (검증 기준)\n"
+            "> ⚠️ **LLM 작업**: 검증 가능한 구체적 조건을 작성하세요.\n\n"
+            "- [ ] (TBD - 구체적 검증 조건)\n"
         )
         
         path = self.brief_dir / f"{brief_id}.md"
@@ -564,14 +589,32 @@ class Automator:
             f"> **Template-Version**: {TEMPLATE_VERSION}\n\n"
             "## Objective (목표)\n"
             f"Execute the requirements defined in {brief_id}. ({brief_id}에 정의된 요구사항 실행)\n\n"
-            "## Scope (범위)\n"
-            "- Implement changes requested in the Brief. (브리프 요청사항 구현)\n\n"
+            "## Scope (범위)\n\n"
+            "### In Scope\n"
+            f"- Implement changes requested in {brief_id}\n"
+            "- (추가 범위는 BRIEF의 Affected Artifacts를 참고하여 구체화)\n\n"
+            "### Out of Scope\n"
+            "- (명시적으로 제외되는 것)\n\n"
             "## Steps (단계)\n"
-            "1. Review Brief details. (브리프 내용 검토)\n"
-            "2. Implement code changes. (코드 변경 구현)\n"
-            "3. Verify against Brief goals. (브리프 목표 검증)\n\n"
+            "> ⚠️ **LLM 작업**: BRIEF 내용을 반영한 구체적 단계를 작성하세요.\n\n"
+            f"- [ ] 1. Review {brief_id} details (브리프 내용 검토)\n"
+            "- [ ] 2. Implement code changes (코드 변경 구현)\n"
+            f"- [ ] 3. Verify against {brief_id} goals (브리프 목표 검증)\n\n"
+            "## Verification (Self-Check)\n"
+            "> 작업 완료 전 반드시 확인\n\n"
+            "- [ ] **Test**: `pytest` 또는 관련 테스트 통과?\n"
+            "- [ ] **Boundary**: CONVENTIONS Boundaries 준수?\n"
+            f"- [ ] **Spec**: {brief_id}과 일치?\n"
+            "- [ ] **Doctor**: `python memory_manager.py --doctor` 통과?\n\n"
+            "## Evidence (Implementation Proof)\n"
+            "> 구현 완료 후 작성\n\n"
+            "- **Tests**: (통과한 테스트 파일/결과)\n"
+            "- **Commands**: (실행한 명령어)\n"
+            "- **Code**: (생성/수정된 파일)\n"
+            "- **Logs**: (관련 로그)\n\n"
             "## Output (결과물)\n"
             f"- Implemented features from {brief_id} ({brief_id} 기능 구현)\n"
+            "- (생성/수정된 구체적 파일 목록)\n"
         )
         
         run_path.write_text(content, encoding="utf-8")
