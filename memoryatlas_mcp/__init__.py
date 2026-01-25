@@ -1,1 +1,0 @@
-"""MemoryAtlas MCP entrypoint package."""

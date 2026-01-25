@@ -1,4 +1,7 @@
 {
-  "stage": "idle",
-  "updated_at": "1970-01-01T00:00:00"
+  "run_id": "RUN-BRIEF-GEN-001-step-01",
+  "stage": "finished",
+  "git_hash": "no-commit",
+  "completed_at": "2026-01-25T12:46:59",
+  "brief_id": "BRIEF-GEN-001"
 }
