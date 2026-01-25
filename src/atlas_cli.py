@@ -23,6 +23,11 @@ SYSTEM_ROOT = ATLAS_ROOT / ".system"
 TEMPLATES_DIR = SYSTEM_ROOT / "templates"
 STATE_DIR = SYSTEM_ROOT / "state"
 LAST_RUN_PATH = STATE_DIR / "last_run.json"
+VERSION_PATH = SYSTEM_ROOT / "VERSION"
+SRC_DEFAULTS_ROOT = REPO_ROOT / "src" / ".system_defaults"
+SRC_DEFAULT_TEMPLATES_DIR = SRC_DEFAULTS_ROOT / "templates"
+SRC_DEFAULT_TOP_DOCS_DIR = SRC_DEFAULTS_ROOT / "top_docs"
+SRC_DEFAULT_PROMPTS_DIR = SRC_DEFAULTS_ROOT / "prompts"
 
 REQ_DIR = ATLAS_ROOT / "req"
 RULE_DIR = ATLAS_ROOT / "rule"
@@ -55,7 +60,7 @@ ALLOWED_MUST_READ_PREFIXES = {"RULE"}
 
 DEFAULT_TOP_DOCS = {
     ATLAS_ROOT / "FRONT.md": """# Atlas\n\nThis repo uses Atlas vNext.\nUse: `python atlas.py init`\n\nQuick flow:\n1) `python atlas.py intake \"...\" --domain GEN`\n2) `python atlas.py plan BRIEF-GEN-001`\n3) `python atlas.py finish RUN-BRIEF-GEN-001-step-01 --git <hash|no-commit> --success true`\n\nLinks: BOARD.md, CONVENTIONS.md, GOALS.md\n""",
-    ATLAS_ROOT / "BOARD.md": """# BOARD\n\n## Queue\n- (empty)\n\n## Active\n- (empty)\n\n## Done\n- (empty)\n""",
+    ATLAS_ROOT / "BOARD.md": """# BOARD\n\n> 이 문서는 프로젝트의 **현재 작업 상태 스냅샷**을 나타냅니다.\n> 비어 있는 경우, 해당 상태에 해당하는 작업이 없음을 의미합니다.\n\n## Queue\n- (empty)\n\n## Active\n- (empty)\n\n## Done\n- (empty)\n\n> Last Reviewed: YYYY-MM-DD\n""",
     ATLAS_ROOT / "CONVENTIONS.md": """# CONVENTIONS\n\n## Boundaries\n\n### Always\n- Keep REQ/RULE/CQ as authority; do not auto-edit without intent.\n- Record verification steps in RUN.\n\n### Ask First\n- Add or remove dependencies.\n- Change storage layout under `.atlas/`.\n\n### Never\n- Hardcode secrets.\n- Modify existing REQ/RULE/CQ silently.\n\n## Roles (one-line)\n- REQ: what the system must do.\n- RULE: constraints that must always hold.\n- CQ: questions the system must answer.\n- BRIEF: intake summary.\n- RUN: execution plan and evidence.\n\n## Verification\n- `python atlas.py doctor`\n- (project tests as defined)\n""",
     ATLAS_ROOT / "GOALS.md": """# GOALS\n\n- Purpose: (fill in)\n- In scope: (fill in)\n- Out of scope: (fill in)\n""",
 }
@@ -69,8 +74,80 @@ DEFAULT_TEMPLATES = {
 }
 
 DEFAULT_PROMPTS = {
-    "onboarding.md": "# Atlas Onboarding Prompt\n\n이 프롬프트를 Claude에게 전달하여 프로젝트 초기 설정을 완료하세요.\n\n---\n\n## Prompt\n\n```\n이 프로젝트에 Atlas 문서 시스템이 설치되었습니다.\n.atlas/ 폴더의 GOALS.md, CONVENTIONS.md, BOARD.md, FRONT.md를 프로젝트에 맞게 설정해주세요.\n\n다음 질문에 답변해주세요:\n\n1. **프로젝트 목적** (GOALS.md용)\n   - 이 프로젝트의 핵심 목표는 무엇인가요?\n   - 범위 내(In scope)와 범위 외(Out of scope)를 구분해주세요.\n\n2. **작업 규칙** (CONVENTIONS.md용)\n   - 항상 지켜야 할 규칙은? (Always)\n   - 먼저 물어봐야 할 것은? (Ask First)\n   - 절대 하면 안 되는 것은? (Never)\n\n3. **현재 작업 상태** (BOARD.md용)\n   - 대기 중인 작업은? (Queue)\n   - 진행 중인 작업은? (Active)\n\n4. **추가 컨텍스트** (FRONT.md용)\n   - 이 프로젝트의 기술 스택은?\n   - 특별히 알아야 할 것이 있나요?\n\n답변을 받으면 해당 파일들을 자동으로 업데이트하겠습니다.\n```\n\n---\n\n## After Onboarding\n\n설정 완료 후: `python atlas.py doctor` 실행하여 검증\n",
+    "onboarding.md": """# Atlas Audit Prompt
+
+> **Note**: 기존 `Onboarding Prompt`가 **`Audit Prompt`**로 재정의되었습니다.
+> 이 프롬프트는 더 이상 파일을 자동으로 생성하지 않으며, 현재 프로젝트와 문서 간의 **정합성(Consistency)을 감사(Audit)**하는 역할을 수행합니다.
+
+---
+
+## Prompt
+
+```
+당신은 이 프로젝트의 **문서 정합성 감사관(Auditor)**입니다.
+이미 존재하는 Atlas 문서들(.atlas/ 폴더 내 GOALS, CONVENTIONS, BOARD, FRONT)이 현재 프로젝트의 실제 상태(코드, 최근 작업, 기술 스택 등)와 일치하는지 점검하는 것이 주 임무입니다.
+
+### ⛔️ 핵심 규칙 (Strict Rules)
+1. **READ-ONLY**: 절대, 어떤 경우에도 기존 파일을 직접 수정하거나 내용을 자동 업데이트하지 마세요.
+2. **제안 모드 (Suggestion Only)**: 불일치나 누락이 발견되면 "어떻게 수정하면 좋을지"를 제안 형식으로만 출력하세요.
+3. **비판적 시각**: 단순히 내용을 요약하지 말고, "정말 이 내용이 현재 유효한가?"를 끊임없이 의심하며 검증하세요.
+
+### 🔍 검사 관점 (Checklist)
+
+LLM은 다음 기준에 따라 각 문서를 엄격하게 평가해야 합니다:
+
+#### 1. GOALS.md (목표 정합성)
+- **Active Task와 일치 여부**: 현재 진행 중인 작업들이 GOALS에 정의된 핵심 목표를 벗어나지 않았는가?
+- **Scope Creep 감지**: 최근 논의되거나 추가된 기능이 In-Scope 범위 내에 있는가? 아니면 범위를 조용히 넓히고 있는가?
+
+#### 2. CONVENTIONS.md (규칙 현실성)
+- **위반 가능성 점검**: 실제 코드나 최근 커밋 내용이 문서의 규칙(Always, Never)을 위반하고 있지 않은가?
+- **구체성 검증**: 규칙이 너무 추상적이어서(예: "깨끗한 코드 작성") 실제 지침이 되지 못하는 부분은 없는가?
+
+#### 3. BOARD.md (현황 동기화)
+- **Active 상태 검증**: Active에 있는 작업이 현재 실제로 진행 중인가? (GOALS 범위를 벗어난 작업이 Active에 있는가?)
+- **Queue 방치 점검**: Queue에 있는 항목들이 너무 오래 방치되어, 현재의 GOALS와 맞지 않게 되었는가?
+
+#### 4. FRONT.md (환경 최신화)
+- **기술 스택 현실화**: 문서에 적힌 기술 스택이 실제 프로젝트 코드와 일치하는가?
+- **암묵적 전제**: 팀 내에서 암묵적으로 합의된 중요한 변경 사항이 문서에서 누락되지 않았는가?
+
+---
+
+### 📝 출력 양식 (Audit Report)
+
+각 파일별로 아래 상태 아이콘을 사용하여 진단 결과를 출력하세요.
+
+- ✔️ **일치 (Pass)**
+- ⚠️ **의심 (Warning)**: 확인이 필요하거나 모호한 부분.
+- ❌ **불일치/누락 (Fail)**: 명확한 오류, 즉시 수정 필요.
+
+**[작성 예시]**
+
+### 1. GOALS.md
+- ✔️ 핵심 목표 여전히 유효함.
+- ⚠️ **의심**: '실시간 채팅' 기능이 최근 작업(Task-102)에서 구현 중인데, GOALS의 Scope에는 명시되지 않았음. 업데이트 필요.
+
+### 2. CONVENTIONS.md
+- ❌ **불일치**: 문서에는 'Type Hint 필수'라고 되어 있으나, 최근 `utils.py` 등에서 많은 함수가 타이핑 없이 작성됨.
+    - **제안**: 규칙을 강화하거나, 예외 상황을 문서에 명시할 것.
+
+(이하 BOARD, FRONT 동일 포맷)
+```
+
+---
+
+## How to execute
+이 프롬프트는 정기적으로(또는 프로젝트 방향성이 흔들릴 때) LLM에게 제시하여 문서 부채를 점검하는 용도로 사용합니다.
+""",
 }
+
+
+def get_version() -> str:
+    """Read version from VERSION file (SSOT)."""
+    if VERSION_PATH.exists():
+        return VERSION_PATH.read_text(encoding="utf-8").strip()
+    return "unknown"
 
 
 def now_date() -> str:
@@ -91,6 +168,46 @@ def read_text(path: Path) -> str:
 
 def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
+
+
+def load_default_top_docs() -> dict[Path, str]:
+    docs = dict(DEFAULT_TOP_DOCS)
+    if SRC_DEFAULT_TOP_DOCS_DIR.is_dir():
+        for path in sorted(SRC_DEFAULT_TOP_DOCS_DIR.glob("*.md")):
+            target = ATLAS_ROOT / path.name
+            if target in docs:
+                docs[target] = read_text(path)
+    return docs
+
+
+def load_default_templates() -> dict[str, str]:
+    templates = dict(DEFAULT_TEMPLATES)
+    if SRC_DEFAULT_TEMPLATES_DIR.is_dir():
+        for name in DEFAULT_TEMPLATES:
+            src_path = SRC_DEFAULT_TEMPLATES_DIR / name
+            if src_path.exists():
+                templates[name] = read_text(src_path)
+    return templates
+
+
+def load_default_prompts() -> dict[str, str]:
+    prompts = dict(DEFAULT_PROMPTS)
+    if SRC_DEFAULT_PROMPTS_DIR.is_dir():
+        for name in DEFAULT_PROMPTS:
+            src_path = SRC_DEFAULT_PROMPTS_DIR / name
+            if src_path.exists():
+                prompts[name] = read_text(src_path)
+    return prompts
+
+
+def load_default_system_files() -> dict[str, str]:
+    """Load VERSION and VERSIONING.md from src/.system_defaults/."""
+    files: dict[str, str] = {}
+    for name in ["VERSION", "VERSIONING.md"]:
+        src_path = SRC_DEFAULTS_ROOT / name
+        if src_path.exists():
+            files[name] = read_text(src_path)
+    return files
 
 
 def load_template(name: str) -> str:
@@ -165,6 +282,22 @@ def update_meta_line(text: str, key: str, value: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def normalize_status(value: str) -> str:
+    return value.strip().lower()
+
+
+def parse_completed_date(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    raw = value.strip()
+    if raw == "-":
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
 def parse_affected_artifacts(text: str) -> dict[str, list[str]]:
     artifacts = {"Create": [], "Modify": [], "Read": []}
     for line in text.splitlines():
@@ -179,6 +312,21 @@ def parse_affected_artifacts(text: str) -> dict[str, list[str]]:
     return artifacts
 
 
+def update_brief_status(brief_id: str, status: str) -> bool:
+    if not BRIEF_ID_PATTERN.match(brief_id):
+        print(f"[WARN] Invalid BRIEF ID in RUN meta: {brief_id}")
+        return False
+    brief_path = BRIEF_DIR / f"{brief_id}.md"
+    if not brief_path.exists():
+        print(f"[WARN] BRIEF not found for RUN: {brief_path}")
+        return False
+    brief_text = read_text(brief_path)
+    brief_text = update_meta_line(brief_text, "Status", status)
+    write_text(brief_path, brief_text)
+    print(f"[OK] Updated {brief_path}")
+    return True
+
+
 def extract_ids_from_text(text: str) -> list[str]:
     return re.findall(r"(?:REQ|RULE|CQ|BRIEF|RUN)-[A-Z]+-\d{3}(?:-step-\d{2})?", text)
 
@@ -189,25 +337,32 @@ def write_last_run(state: dict) -> None:
 
 
 def init_command(_args: argparse.Namespace) -> int:
+    overwrite = getattr(_args, "overwrite", False)
     ensure_dir(ATLAS_ROOT)
     for d in [REQ_DIR, RULE_DIR, CQ_DIR, BRIEF_DIR, RUN_DIR, IDEA_DIR, TEMPLATES_DIR, STATE_DIR, SYSTEM_ROOT / "prompts"]:
         ensure_dir(d)
 
-    for path, content in DEFAULT_TOP_DOCS.items():
-        if not path.exists():
+    for path, content in load_default_top_docs().items():
+        if overwrite or not path.exists():
             write_text(path, content)
 
-    for name, content in DEFAULT_TEMPLATES.items():
+    for name, content in load_default_templates().items():
         template_path = TEMPLATES_DIR / name
-        if not template_path.exists():
+        if overwrite or not template_path.exists():
             write_text(template_path, content)
 
     prompts_dir = SYSTEM_ROOT / "prompts"
-    for name, content in DEFAULT_PROMPTS.items():
+    for name, content in load_default_prompts().items():
         prompt_path = prompts_dir / name
-        if not prompt_path.exists():
+        if overwrite or not prompt_path.exists():
             write_text(prompt_path, content)
             print(f"[OK] Created {prompt_path}")
+
+    for name, content in load_default_system_files().items():
+        system_path = SYSTEM_ROOT / name
+        if overwrite or not system_path.exists():
+            write_text(system_path, content)
+            print(f"[OK] Created {system_path}")
 
     if not LAST_RUN_PATH.exists():
         write_last_run({"stage": "idle", "updated_at": now_iso()})
@@ -365,20 +520,26 @@ def finish_command(args: argparse.Namespace) -> int:
         return 1
 
     text = read_text(run_path)
+    meta = extract_meta(text)
+    brief_id = meta.get("Brief")
     status = "Completed" if args.success else "Failed"
     text = update_meta_line(text, "Status", status)
     text = update_meta_line(text, "Git", args.git)
     text = update_meta_line(text, "Completed", now_date())
     write_text(run_path, text)
 
-    write_last_run(
-        {
-            "run_id": run_id,
-            "stage": "finished",
-            "git_hash": args.git,
-            "completed_at": now_iso(),
-        }
-    )
+    if brief_id:
+        update_brief_status(brief_id, status)
+
+    last_run_state = {
+        "run_id": run_id,
+        "stage": "finished",
+        "git_hash": args.git,
+        "completed_at": now_iso(),
+    }
+    if brief_id:
+        last_run_state["brief_id"] = brief_id
+    write_last_run(last_run_state)
 
     print(f"[OK] Updated {run_path}")
     return 0
@@ -401,6 +562,8 @@ def iter_links(text: str) -> list[str]:
 
 def doctor_command(args: argparse.Namespace) -> int:
     issues = 0
+    brief_statuses: dict[str, str] = {}
+    run_brief_statuses: list[tuple[str, str, str, Optional[datetime]]] = []
 
     required_dirs = [REQ_DIR, RULE_DIR, CQ_DIR, BRIEF_DIR, RUN_DIR, SYSTEM_ROOT, TEMPLATES_DIR, STATE_DIR]
     for path in required_dirs:
@@ -449,6 +612,26 @@ def doctor_command(args: argparse.Namespace) -> int:
 
         if expected_prefix is None:
             continue
+
+        if expected_prefix == "BRIEF":
+            status = meta.get("Status")
+            if not status:
+                print(f"[ERR] Missing Status: {path}")
+                issues += 1
+            else:
+                brief_statuses[file_id] = status
+
+        if expected_prefix == "RUN":
+            brief_id = meta.get("Brief")
+            run_status = meta.get("Status")
+            completed = meta.get("Completed")
+            if brief_id and run_status:
+                run_brief_statuses.append(
+                    (file_id, brief_id, run_status, parse_completed_date(completed))
+                )
+            if file_id.startswith("RUN-BRIEF-") and not brief_id:
+                print(f"[WARN] Missing Brief reference: {path}")
+                issues += 1
 
         if not meta_id:
             print(f"[ERR] Missing meta ID: {path}")
@@ -506,6 +689,33 @@ def doctor_command(args: argparse.Namespace) -> int:
                     print(f"[ERR] Broken link: {path} -> {target}")
                     issues += 1
 
+    latest_run_by_brief: dict[str, tuple[str, str, Optional[datetime]]] = {}
+    for run_id, brief_id, run_status, completed_at in run_brief_statuses:
+        normalized = normalize_status(run_status)
+        if normalized not in {"completed", "failed"}:
+            continue
+        existing = latest_run_by_brief.get(brief_id)
+        if existing is None:
+            latest_run_by_brief[brief_id] = (run_id, run_status, completed_at)
+            continue
+        existing_run_id, _, existing_completed = existing
+        if completed_at and (existing_completed is None or completed_at > existing_completed):
+            latest_run_by_brief[brief_id] = (run_id, run_status, completed_at)
+        elif completed_at is None and existing_completed is None and run_id > existing_run_id:
+            latest_run_by_brief[brief_id] = (run_id, run_status, completed_at)
+
+    for brief_id, (run_id, run_status, _) in latest_run_by_brief.items():
+        brief_status = brief_statuses.get(brief_id)
+        if not brief_status:
+            print(f"[WARN] BRIEF missing for RUN: {run_id} -> {brief_id}")
+            issues += 1
+            continue
+        if normalize_status(brief_status) != normalize_status(run_status):
+            print(
+                f"[WARN] BRIEF status mismatch: {brief_id} is {brief_status}, latest RUN {run_id} is {run_status}"
+            )
+            issues += 1
+
     if LAST_RUN_PATH.exists():
         try:
             state = json.loads(read_text(LAST_RUN_PATH))
@@ -533,9 +743,15 @@ def doctor_command(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="atlas")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--version", "-v",
+        action="version",
+        version=f"Atlas {get_version()}"
+    )
+    sub = parser.add_subparsers(dest="command", required=False)
 
-    sub.add_parser("init")
+    init = sub.add_parser("init")
+    init.add_argument("--overwrite", action="store_true")
 
     intake = sub.add_parser("intake")
     intake.add_argument("text")
@@ -559,6 +775,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if not args.command:
+        parser.print_help()
+        return 0
 
     if args.command != "init" and not ATLAS_ROOT.exists():
         print("[INFO] .atlas not found. Initializing...")
