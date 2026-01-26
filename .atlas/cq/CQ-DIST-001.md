@@ -15,6 +15,7 @@
 2. `python atlas.py init` 실행 시 완전한 `.atlas/` 구조 생성
 3. `.atlas/.system/src/atlas_cli.py`에 **원본 소스 코드** 생성 (stickytape wrapper 없음)
 4. 외부 의존성 없이 독립 실행 가능
+5. `atlas.py`는 배포 산출물이므로 **절대 직접 수정하지 않고**, 항상 빌드 프로세스를 통해 생성되어야 한다.
 
 ## Traceability
 - **Source**: CQ-SYNC-001 5번 항목에서 분리

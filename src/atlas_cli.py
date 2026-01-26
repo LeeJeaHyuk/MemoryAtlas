@@ -10,6 +10,18 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Optional
 
+ATLAS_VERSION = "0.2.0"
+
+CHANGELOG = {
+    "0.2.0": [
+        "Feature: Auto-detection of version updates.",
+        "Feature: Print changelog on update.",
+    ],
+    "0.1.0": [
+        "Initial release."
+    ]
+}
+
 # If running from src/atlas_cli.py, parents[1] is the root.
 # If bundled as atlas.py in the root, parents[0] (or .parent) is the root.
 _path = Path(__file__).resolve()
@@ -144,7 +156,23 @@ LLM은 다음 기준에 따라 각 문서를 엄격하게 평가해야 합니다
     - **제안**: 규칙을 강화하거나, 예외 상황을 문서에 명시할 것.
 
 (이하 BOARD, FRONT 동일 포맷)
-```
+\n
+\n---
+\n
+\n### 🚀 [Recommended Actions] 이후 진행 가이드
+\n
+\n감사 결과를 바탕으로 사용자가 취해야 할 구체적인 행동을 제안하세요.
+\n
+\n1. **승인 필요 (Needs Approval)**: ⚠️/❌ 항목 중, 사용자의 확인이 필요한 정책적 결정 사항.
+\n2. **수정 제안 (Edits)**: 즉시 문서를 수정해야 하는 사항 (구체적인 문구 제안 포함).
+\n3. **새로운 태스크 (New Tasks)**: 문서 정합성을 위해 새로 등록해야 할 작업 (예: "로그 시스템 리팩토링 스펙 문서 작성").
+\n
+\n**[작성 예시]**
+\n### 🚀 이후 진행 가이드
+\n1. **CONVENTIONS.md 업데이트**: `Type Hint` 규칙을 `Strict`에서 `Optional`로 완화하는 문구로 수정할 것을 제안합니다.
+\n2. **GOALS.md 검토**: '실시간 채팅' 기능이 In-Scope인지 PM과 협의 후 Scope 섹션 업데이트 필요.
+\n```
+\n
 
 ---
 
@@ -1087,6 +1115,57 @@ def doctor_command(args: argparse.Namespace) -> int:
     return 0 if issues == 0 else 1
 
 
+    print(f"[DONE] Doctor completed with {issues} issue(s).")
+    return 0 if issues == 0 else 1
+
+
+def parse_version(v: str) -> tuple[int, ...]:
+    try:
+        return tuple(map(int, v.strip().split(".")))
+    except ValueError:
+        return (0, 0, 0)
+
+
+def check_version_update() -> None:
+    """Check if Atlas has been updated and print changelog."""
+    if not VERSION_PATH.exists():
+        return
+
+    installed_ver_str = VERSION_PATH.read_text(encoding="utf-8").strip()
+    if not installed_ver_str:
+        return
+
+    installed_ver = parse_version(installed_ver_str)
+    current_ver = parse_version(ATLAS_VERSION)
+
+    if current_ver > installed_ver:
+        print(f"\n[INFO] Upgrading Atlas: {installed_ver_str} -> {ATLAS_VERSION}")
+        print("=" * 60)
+        
+        # Collect versions to print
+        versions_to_print = []
+        for ver_str in CHANGELOG:
+            ver = parse_version(ver_str)
+            if ver > installed_ver and ver <= current_ver:
+                versions_to_print.append((ver, ver_str))
+        
+        # Sort by version descending
+        versions_to_print.sort(key=lambda x: x[0], reverse=True)
+        
+        for _, ver_str in versions_to_print:
+            print(f"[{ver_str}]")
+            for change in CHANGELOG[ver_str]:
+                print(f"- {change}")
+            print()
+            
+        print("=" * 60)
+        
+        # Update VERSION file
+        if VERSION_PATH.exists():
+            write_text(VERSION_PATH, ATLAS_VERSION)
+            print(f"[OK] Updated VERSION file to {ATLAS_VERSION}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="atlas")
     parser.add_argument(
@@ -1135,6 +1214,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.command != "init" and not ATLAS_ROOT.exists():
         print("[INFO] .atlas not found. Initializing...")
         init_command(args)
+
+    if args.command != "init":
+        check_version_update()
 
     if args.command == "init":
         return init_command(args)

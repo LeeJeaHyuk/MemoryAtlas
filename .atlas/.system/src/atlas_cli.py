@@ -218,12 +218,26 @@ def load_default_system_files() -> dict[str, str]:
 
 
 def load_default_src_files() -> dict[str, str]:
-    """Load source files from src/.system_defaults/src/."""
+    """Load source files - either from defaults dir or embedded in atlas.py."""
     files: dict[str, str] = {}
+    
+    # Try loading from src/.system_defaults/src/ first (development mode)
     src_dir = SRC_DEFAULTS_ROOT / "src"
     if src_dir.is_dir():
         for path in src_dir.glob("*.py"):
             files[path.name] = read_text(path)
+    
+    # If no files found and running as bundled atlas.py, embed self
+    if not files:
+        # When running as atlas.py, include self as the source
+        _self_path = Path(__file__).resolve()
+        if _self_path.name == "atlas.py" or _self_path.name != "atlas_cli.py":
+            # Read the current file content (which contains all the code)
+            try:
+                files["atlas_cli.py"] = read_text(_self_path)
+            except Exception:
+                pass
+    
     return files
 
 
