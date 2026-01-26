@@ -60,10 +60,6 @@ ALLOWED_MUST_READ_PREFIXES = {"RULE"}
 
 PATCH_DIR = ATLAS_ROOT / "patch"
 
-# Embedded source code (populated by build.py)
-# __EMBEDDED_SRC_PLACEHOLDER__ will be replaced with base64-encoded source
-EMBEDDED_SRC_B64 = "__EMBEDDED_SRC_PLACEHOLDER__"
-
 # Checkbox patterns
 CHECKBOX_UNCHECKED = re.compile(r"^(\s*)-\s*\[\s*\](.*)$")
 CHECKBOX_CHECKED = re.compile(r"^(\s*)-\s*\[x\](.*)$", re.IGNORECASE)
@@ -222,24 +218,12 @@ def load_default_system_files() -> dict[str, str]:
 
 
 def load_default_src_files() -> dict[str, str]:
-    """Load source files - either from defaults dir or embedded in atlas.py."""
-    import base64
+    """Load source files from src/.system_defaults/src/."""
     files: dict[str, str] = {}
-    
-    # Try loading from src/.system_defaults/src/ first (development mode)
     src_dir = SRC_DEFAULTS_ROOT / "src"
     if src_dir.is_dir():
         for path in src_dir.glob("*.py"):
             files[path.name] = read_text(path)
-    
-    # If no files found, try embedded source (distribution mode)
-    if not files and EMBEDDED_SRC_B64 != "__EMBEDDED_SRC_PLACEHOLDER__":
-        try:
-            decoded = base64.b64decode(EMBEDDED_SRC_B64).decode("utf-8")
-            files["atlas_cli.py"] = decoded
-        except Exception:
-            pass
-    
     return files
 
 

@@ -86,7 +86,7 @@ CLI는 이 VERSION 파일을 읽어 표시만 합니다 (SSOT 원칙).
 ### CHANGELOG (권장)
 
 ```markdown
-## [0.2.0] - 2026-01-25
+## [0.2.0] - YYYY-MM-DD
 
 ### Added
 - `atlas archive` 명령 추가
@@ -106,11 +106,3 @@ CLI는 이 VERSION 파일을 읽어 표시만 합니다 (SSOT 원칙).
 python atlas.py --version
 # Atlas 0.1.0
 ```
-
----
-
-## History
-
-| Version | Date | Summary |
-|---------|------|---------|
-| 0.1.0 | 2026-01-25 | Initial release (마이그레이션 후 새 시작) |

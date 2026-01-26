@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
 import os
 import subprocess
 import sys
@@ -11,6 +12,11 @@ def main() -> int:
     root = Path(__file__).resolve().parent
     src = root / "src" / "atlas_cli.py"
     out_path = root / "atlas.py"
+
+    # Read original source for embedding
+    original_src = src.read_text(encoding="utf-8")
+    embedded_b64 = base64.b64encode(original_src.encode("utf-8")).decode("ascii")
+    print(f"Encoded source: {len(original_src)} bytes -> {len(embedded_b64)} chars base64")
 
     scripts_dir = Path(sys.executable).parent / "Scripts"
     if scripts_dir.exists():
@@ -43,7 +49,16 @@ def main() -> int:
             sys.stderr.write(result.stderr + "\n")
         return result.returncode
 
-    out_path.write_text(result.stdout, encoding="utf-8")
+    # Replace placeholder with embedded source
+    output = result.stdout
+    placeholder = '__EMBEDDED_SRC_PLACEHOLDER__'
+    if placeholder in output:
+        output = output.replace(f'EMBEDDED_SRC_B64 = "{placeholder}"', f'EMBEDDED_SRC_B64 = "{embedded_b64}"')
+        print(f"Embedded original source code ({len(embedded_b64)} chars)")
+    else:
+        sys.stderr.write("WARNING: Placeholder not found in output\n")
+
+    out_path.write_text(output, encoding="utf-8")
     print(f"Wrote {out_path}")
     return 0
 
