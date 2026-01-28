@@ -80,6 +80,9 @@ RUN_ID_PATTERN = re.compile(r"^RUN-(BRIEF|REQ)-([A-Z]+)-(\d{3})-step-(\d{2})$")
 META_RE = re.compile(r"^>\s*\*\*([^*]+)\*\*:\s*(.+)$")
 HEADER_ID_RE = re.compile(r"^#\s+\[([^\]]+)\]", re.M)
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+REQ_REF_RE = re.compile(r"REQ-[A-Z]+-\d{3}")
+REF_TOKEN_RE = re.compile(r"@(?P<id>REQ-[A-Z]+-\d{3})(?:#[^)\s]+)?")
+NORMATIVE_KEYWORDS = ["반드시", "해야", "불가", "금지", "항상"]
 
 ALLOWED_MUST_READ_PREFIXES = {"RULE"}
 
@@ -894,13 +897,53 @@ def ensure_view_doc(req_id: str, title: str) -> Path:
         return path
 
     content = read_text(path)
-    req_link = f"../req/{req_id}.md"
-    if req_link not in content:
-        if "## References (SSOT)" not in content:
-            content = content.rstrip() + "\n\n## References (SSOT)\n"
-        content = content.rstrip() + f"\n- [{req_id}]({req_link})\n"
+    if req_id not in content:
+        if "## References (SSOT index)" not in content:
+            content = content.rstrip() + "\n\n## References (SSOT index)\n"
+        content = content.rstrip() + f"\n- {req_id}\n"
         write_text(path, content)
     return path
+
+
+def extract_section_lines(text: str, heading: str) -> list[str]:
+    lines = text.splitlines()
+    out: list[str] = []
+    in_section = False
+    target = f"## {heading}".strip().lower()
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            if in_section:
+                break
+            in_section = stripped.lower() == target
+            continue
+        if in_section:
+            out.append(line)
+    return out
+
+
+def extract_view_references(text: str) -> set[str]:
+    refs: set[str] = set()
+    for line in extract_section_lines(text, "References (SSOT index)"):
+        for ref_id in REQ_REF_RE.findall(line):
+            refs.add(ref_id)
+    return refs
+
+
+def extract_view_summary_refs(text: str) -> set[str]:
+    refs: set[str] = set()
+    for line in extract_section_lines(text, "Summary"):
+        if "<!--" in line:
+            continue
+        for match in REF_TOKEN_RE.finditer(line):
+            refs.add(match.group("id"))
+    return refs
+
+
+def extract_view_ssot_refs(text: str) -> set[str]:
+    meta = extract_meta(text)
+    value = meta.get("SSOT", "")
+    return set(REQ_REF_RE.findall(value))
 
 
 def run_command(args: argparse.Namespace) -> int:
@@ -1256,28 +1299,64 @@ def doctor_command(args: argparse.Namespace) -> int:
     view_refs: set[str] = set()
     for path in iter_md_files([VIEWS_DIR]):
         text = read_text(path)
-        meta = extract_meta(text)
-        refs_value = meta.get("Refs")
-        if refs_value:
-            for ref_id in parse_must_read(refs_value):
-                if ref_id.startswith("REQ-"):
-                    view_refs.add(ref_id)
-                    ref_path = REQ_DIR / f"{ref_id}.md"
-                    if not ref_path.exists():
-                        print(f"[WARN] View refs missing REQ: {path} -> {ref_id}")
-                        issues += 1
+        index_refs = extract_view_references(text)
+        summary_refs = extract_view_summary_refs(text)
+        ssot_refs = extract_view_ssot_refs(text)
+        summary_lines = extract_section_lines(text, "Summary")
+
+        if not index_refs:
+            print(f"[WARN] View missing References (SSOT index): {path}")
+            issues += 1
+
+        if not ssot_refs:
+            print(f"[WARN] View missing SSOT meta: {path}")
+            issues += 1
+
+        for ref_id in ssot_refs:
+            if ref_id not in index_refs:
+                print(f"[WARN] SSOT ref not in SSOT index: {path} -> {ref_id}")
+                issues += 1
+            ref_path = REQ_DIR / f"{ref_id}.md"
+            if not ref_path.exists():
+                print(f"[WARN] SSOT ref missing REQ: {path} -> {ref_id}")
+                issues += 1
+
+        for ref_id in index_refs:
+            ref_path = REQ_DIR / f"{ref_id}.md"
+            if not ref_path.exists():
+                print(f"[WARN] View refs missing REQ: {path} -> {ref_id}")
+                issues += 1
+
+        for ref_id in summary_refs:
+            if ref_id not in index_refs:
+                print(f"[WARN] Summary ref not in SSOT index: {path} -> {ref_id}")
+                issues += 1
+            ref_path = REQ_DIR / f"{ref_id}.md"
+            if not ref_path.exists():
+                print(f"[WARN] Summary ref missing REQ: {path} -> {ref_id}")
+                issues += 1
+
+        for line in summary_lines:
+            if "<!--" in line:
+                continue
+            if "ATLAS:OK" in line and not REF_TOKEN_RE.search(line):
+                print(f"[WARN] Summary line marked ATLAS:OK missing ref: {path}")
+                issues += 1
+            if any(keyword in line for keyword in NORMATIVE_KEYWORDS) and not REF_TOKEN_RE.search(line):
+                print(f"[WARN] Summary line has normative keyword without ref: {path}")
+                issues += 1
+
+        view_refs.update(index_refs | summary_refs | ssot_refs)
+
         for target in iter_links(text):
             if not target or target.startswith("#"):
                 continue
             if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", target):
                 continue
             resolved = (path.parent / target).resolve()
-            if is_relative_to(resolved, REQ_DIR):
-                if not resolved.exists():
-                    print(f"[WARN] Broken REQ link in view: {path} -> {target}")
-                    issues += 1
-                else:
-                    view_refs.add(resolved.stem)
+            if is_relative_to(resolved, REQ_DIR) and not resolved.exists():
+                print(f"[WARN] Broken REQ link in view: {path} -> {target}")
+                issues += 1
 
     # REQ without any view reference
     req_ids = [path.stem for path in all_docs if path.parent.name == "req"]
