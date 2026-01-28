@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.venv-mcp/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# VS Code
+.vscode/
+
+# Environment variables
+.env
+
+# System
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Project Specific
+99_ARCHIVE/

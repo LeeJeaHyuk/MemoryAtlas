@@ -3,7 +3,7 @@
 ## Boundaries
 
 ### Always
-- Keep REQ/RULE/CQ as authority; do not auto-edit without intent.
+- Keep REQ/RULE/ADR/CQ as authority; do not auto-edit without intent.
 - Record verification steps in RUN.
 
 ### Ask First
@@ -12,7 +12,7 @@
 
 ### Never
 - Hardcode secrets.
-- Modify existing REQ/RULE/CQ silently.
+- Modify existing REQ/RULE/ADR/CQ silently.
 
 ## Project Rules
 - Use `python atlas.py ...` for Atlas CLI operations.
@@ -21,10 +21,12 @@
 - Use `YYYY-MM-DD` for metadata dates and update `Last Reviewed` when editing top docs.
 
 ## Roles (one-line)
-- REQ: what the system must do.
-- RULE: constraints that must always hold.
+- REQ: what the system must do (SSOT).
+- RULE: constraints that must always hold (SSOT).
+- ADR: architectural decisions (SSOT).
 - CQ: questions the system must answer.
-- BRIEF: intake summary.
+- VIEW: human-readable context.
+- DRAFT: optional intake scratchpad.
 - RUN: execution plan and evidence.
 
 ## Verification

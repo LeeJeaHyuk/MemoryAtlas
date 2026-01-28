@@ -5,18 +5,22 @@
   "allowed_folders": {
     ".atlas": {
       "description": "All project artifacts live here",
-      "children": ["req", "rule", "cq", "brief", "runs", "idea", ".system"]
+      "children": ["req", "rule", "adr", "cq", "views", "drafts", "runs", "inbox", "archive", ".system"]
     },
     ".atlas/req": { "description": "Requirements" },
     ".atlas/rule": { "description": "Constraints/Rules" },
+    ".atlas/adr": { "description": "Architectural decisions (SSOT)" },
     ".atlas/cq": { "description": "Completion Questions" },
-    ".atlas/brief": { "description": "Task briefs" },
+    ".atlas/views": { "description": "Human-readable views" },
+    ".atlas/drafts": { "description": "Draft intake buffer", "children": ["brief"] },
+    ".atlas/drafts/brief": { "description": "Brief drafts (optional)" },
     ".atlas/runs": { "description": "Execution logs" },
-    ".atlas/idea": {
+    ".atlas/inbox": {
       "description": "Unstructured notes/memos/scraps - no validation rules",
       "doctor_excluded": true,
-      "notes": "plan() cannot use idea/ as direct input. Other docs may link to idea/ as reference only."
+      "notes": "run() cannot use inbox/ as direct input. Other docs may link to inbox/ as reference only."
     },
+    ".atlas/archive": { "description": "Archived artifacts" },
     ".atlas/.system": {
       "description": "System configuration",
       "children": ["templates", "state", "src", "prompts"]
@@ -33,9 +37,10 @@
   "file_naming": {
     "req": "REQ-{DOMAIN}-{SEQ:3}.md",
     "rule": "RULE-{DOMAIN}-{SEQ:3}.md",
+    "adr": "ADR-{DOMAIN}-{SEQ:3}.md",
     "cq": "CQ-{DOMAIN}-{SEQ:3}.md",
     "brief": "BRIEF-{DOMAIN}-{SEQ:3}.md",
-    "run": "RUN-BRIEF-{DOMAIN}-{SEQ:3}-step-{STEP:2}.md"
+    "run": "RUN-REQ-{DOMAIN}-{SEQ:3}-step-{STEP:2}.md"
   },
 
   "legacy_migration": {

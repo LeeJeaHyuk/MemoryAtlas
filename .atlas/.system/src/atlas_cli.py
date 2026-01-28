@@ -6,9 +6,29 @@ import json
 import os
 import re
 import sys
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Optional
+
+ATLAS_VERSION = "0.3.0"
+
+CHANGELOG = {
+    "0.3.0": [
+        "Refactor: SSOT-first structure (views/adr/drafts/inbox/archive).",
+        "Feature: capture/run workflow with REQ-based RUN IDs.",
+        "Feature: finish writes Implemented-Git/Linked-RUN to REQ.",
+        "Feature: doctor validates view refs and git evidence.",
+        "Templates: add VIEW/ADR; update RUN/REQ."
+    ],
+    "0.2.0": [
+        "Feature: Auto-detection of version updates.",
+        "Feature: Print changelog on update.",
+    ],
+    "0.1.0": [
+        "Initial release."
+    ]
+}
 
 # If running from src/atlas_cli.py, parents[1] is the root.
 # If bundled as atlas.py in the root, parents[0] (or .parent) is the root.
@@ -31,10 +51,14 @@ SRC_DEFAULT_PROMPTS_DIR = SRC_DEFAULTS_ROOT / "prompts"
 
 REQ_DIR = ATLAS_ROOT / "req"
 RULE_DIR = ATLAS_ROOT / "rule"
+ADR_DIR = ATLAS_ROOT / "adr"
 CQ_DIR = ATLAS_ROOT / "cq"
-BRIEF_DIR = ATLAS_ROOT / "brief"
+VIEWS_DIR = ATLAS_ROOT / "views"
+INBOX_DIR = ATLAS_ROOT / "inbox"  # Unstructured notes, excluded from doctor
+DRAFTS_DIR = ATLAS_ROOT / "drafts"
+BRIEF_DIR = DRAFTS_DIR / "brief"
 RUN_DIR = ATLAS_ROOT / "runs"
-IDEA_DIR = ATLAS_ROOT / "idea"  # Unstructured notes, excluded from doctor
+ARCHIVE_DIR = ATLAS_ROOT / "archive"
 
 REQUIRED_TOP_DOCS = [
     ATLAS_ROOT / "FRONT.md",
@@ -48,6 +72,7 @@ OPTIONAL_TOP_DOCS = [
 
 REQ_ID_PATTERN = re.compile(r"^REQ-([A-Z]+)-(\d{3})$")
 RULE_ID_PATTERN = re.compile(r"^RULE-([A-Z]+)-(\d{3})$")
+ADR_ID_PATTERN = re.compile(r"^ADR-([A-Z]+)-(\d{3})$")
 CQ_ID_PATTERN = re.compile(r"^CQ-([A-Z]+)-(\d{3})$")
 BRIEF_ID_PATTERN = re.compile(r"^BRIEF-([A-Z]+)-(\d{3})$")
 RUN_ID_PATTERN = re.compile(r"^RUN-(BRIEF|REQ)-([A-Z]+)-(\d{3})-step-(\d{2})$")
@@ -60,24 +85,30 @@ ALLOWED_MUST_READ_PREFIXES = {"RULE"}
 
 PATCH_DIR = ATLAS_ROOT / "patch"
 
+# Embedded source code (populated by build.py)
+# __EMBEDDED_SRC_PLACEHOLDER__ will be replaced with base64-encoded source
+EMBEDDED_SRC_B64 = "__EMBEDDED_SRC_PLACEHOLDER__"
+
 # Checkbox patterns
 CHECKBOX_UNCHECKED = re.compile(r"^(\s*)-\s*\[\s*\](.*)$")
 CHECKBOX_CHECKED = re.compile(r"^(\s*)-\s*\[x\](.*)$", re.IGNORECASE)
 TRACEABILITY_LINK_RE = re.compile(r"\*\*(?:Implements|Answers|Solved by|Implemented by)\*\*:\s*\[([^\]]+)\]\(([^)]+)\)")
 
 DEFAULT_TOP_DOCS = {
-    ATLAS_ROOT / "FRONT.md": """# Atlas\n\nThis repo uses Atlas vNext.\nUse: `python atlas.py init`\n\nQuick flow:\n1) `python atlas.py intake \"...\" --domain GEN`\n2) `python atlas.py plan BRIEF-GEN-001`\n3) `python atlas.py finish RUN-BRIEF-GEN-001-step-01 --git <hash|no-commit> --success true`\n\nLinks: BOARD.md, CONVENTIONS.md, GOALS.md\n""",
+    ATLAS_ROOT / "FRONT.md": """# Atlas\n\nThis repo uses Atlas vNext.\nUse: `python atlas.py init`\n\nQuick flow:\n1) `python atlas.py capture \"...\" --domain GEN`\n2) `python atlas.py run REQ-GEN-001`\n3) `python atlas.py finish RUN-REQ-GEN-001-step-01 --git <hash|no-commit> --success true`\n\nLinks: BOARD.md, CONVENTIONS.md, GOALS.md\n""",
     ATLAS_ROOT / "BOARD.md": """# BOARD\n\n> 이 문서는 프로젝트의 **현재 작업 상태 스냅샷**을 나타냅니다.\n> 비어 있는 경우, 해당 상태에 해당하는 작업이 없음을 의미합니다.\n\n## Queue\n- (empty)\n\n## Active\n- (empty)\n\n## Done\n- (empty)\n\n> Last Reviewed: YYYY-MM-DD\n""",
-    ATLAS_ROOT / "CONVENTIONS.md": """# CONVENTIONS\n\n## Boundaries\n\n### Always\n- Keep REQ/RULE/CQ as authority; do not auto-edit without intent.\n- Record verification steps in RUN.\n\n### Ask First\n- Add or remove dependencies.\n- Change storage layout under `.atlas/`.\n\n### Never\n- Hardcode secrets.\n- Modify existing REQ/RULE/CQ silently.\n\n## Roles (one-line)\n- REQ: what the system must do.\n- RULE: constraints that must always hold.\n- CQ: questions the system must answer.\n- BRIEF: intake summary.\n- RUN: execution plan and evidence.\n\n## Verification\n- `python atlas.py doctor`\n- (project tests as defined)\n""",
+    ATLAS_ROOT / "CONVENTIONS.md": """# CONVENTIONS\n\n## Boundaries\n\n### Always\n- Keep REQ/RULE/ADR/CQ as authority; do not auto-edit without intent.\n- Record verification steps in RUN.\n\n### Ask First\n- Add or remove dependencies.\n- Change storage layout under `.atlas/`.\n\n### Never\n- Hardcode secrets.\n- Modify existing REQ/RULE/ADR/CQ silently.\n\n## Roles (one-line)\n- REQ: what the system must do (SSOT).\n- RULE: constraints that must always hold (SSOT).\n- ADR: architectural decisions (SSOT).\n- CQ: questions the system must answer.\n- VIEW: human-readable context.\n- DRAFT: optional intake scratchpad.\n- RUN: execution plan and evidence.\n\n## Verification\n- `python atlas.py doctor`\n- (project tests as defined)\n""",
     ATLAS_ROOT / "GOALS.md": """# GOALS\n\n- Purpose: (fill in)\n- In scope: (fill in)\n- Out of scope: (fill in)\n""",
 }
 
 DEFAULT_TEMPLATES = {
-    "REQ.md": """# [REQ-XXX-001] Title\n\n> **ID**: REQ-XXX-001\n> **Domain**: XXX\n> **Status**: Draft\n> **Last Updated**: YYYY-MM-DD\n> **Must-Read**: RULE-XXX-001\n\n---\n\n## Decision\n- (what must be true)\n\n## Input\n- (inputs)\n\n## Output\n- (outputs)\n\n## Acceptance Criteria\n- [ ] (criteria)\n""",
+    "REQ.md": """# [REQ-XXX-001] Title\n\n> **ID**: REQ-XXX-001\n> **Domain**: XXX\n> **Status**: Draft\n> **Last Updated**: YYYY-MM-DD\n> **Implemented-Git**: -\n> **Linked-RUN**: -\n> **Must-Read**: RULE-XXX-001\n\n---\n\n## Decision\n- (what must be true)\n\n## Input\n- (inputs)\n\n## Output\n- (outputs)\n\n## Acceptance Criteria\n- [ ] (criteria)\n""",
     "RULE.md": """# [RULE-XXX-001] Title\n\n> **ID**: RULE-XXX-001\n> **Domain**: XXX\n> **Priority**: Medium\n> **Last Updated**: YYYY-MM-DD\n> **Must-Read**: RULE-XXX-001\n\n---\n\n## Rule Statement\n- (always true / forbidden)\n\n## Scope\n- (where it applies)\n\n## Violation\n- (what counts as a violation)\n\n## Examples\n\n### Correct\n- (example)\n\n### Incorrect\n- (example)\n""",
     "CQ.md": """# [CQ-XXX-001] Title\n\n> **ID**: CQ-XXX-001\n> **Domain**: XXX\n> **Status**: Draft\n> **Last Updated**: YYYY-MM-DD\n\n---\n\n## Question\n- (what must the system answer?)\n\n## Expected Answer (Criteria)\n1. ...\n2. ...\n\n## Traceability\n- **Solves by**: [REQ-XXX-001](../req/REQ-XXX-001.md)\n- **Constrained by**: [RULE-XXX-001](../rule/RULE-XXX-001.md)\n""",
     "BRIEF.md": """# [BRIEF-XXX-001] Title\n\n> **ID**: BRIEF-XXX-001\n> **Domain**: XXX\n> **Status**: Active\n> **Date**: YYYY-MM-DD\n\n## 1. User Request\n- (raw text)\n\n## 2. Intent Summary\n- Goal:\n- Problem:\n\n## 3. Affected Artifacts\n- Create: \n- Modify: \n- Read: \n\n## 4. Proposed Changes\n1. \n2. \n\n## 5. Verification Criteria\n- [ ] \n""",
-    "RUN.md": """# [RUN-BRIEF-XXX-001-step-01] Title\n\n> **ID**: RUN-BRIEF-XXX-001-step-01\n> **Brief**: BRIEF-XXX-001\n> **Status**: Planned\n> **Started**: YYYY-MM-DD\n> **Git**: -\n> **Completed**: -\n\n## Input\n- (documents to read)\n\n## Steps\n- [ ] \n\n## Verification\n- [ ] Test\n- [ ] Spec\n- [ ] Boundary\n\n## Output\n- (files created/modified)\n""",
+    "RUN.md": """# [RUN-REQ-XXX-001-step-01] Title\n\n> **ID**: RUN-REQ-XXX-001-step-01\n> **REQ**: REQ-XXX-001\n> **Status**: Planned\n> **Started**: YYYY-MM-DD\n> **Git**: -\n> **Completed**: -\n\n## Target REQ\n- REQ-XXX-001\n\n## Plan\n- [ ] \n\n## Verification\n- [ ] Test\n- [ ] Spec\n- [ ] Boundary\n\n## Output\n- (files created/modified)\n""",
+    "VIEW.md": """# [VIEW-REQ-XXX-001] Title\n\n> **Refs**: REQ-XXX-001\n> **Last Updated**: YYYY-MM-DD\n\n## Summary\n- (human-readable summary)\n\n## References (SSOT)\n- [REQ-XXX-001](../req/REQ-XXX-001.md)\n""",
+    "ADR.md": """# [ADR-XXX-001] Title\n\n> **ID**: ADR-XXX-001\n> **Domain**: XXX\n> **Status**: Draft\n> **Date**: YYYY-MM-DD\n> **Supersedes**: -\n> **Superseded-By**: -\n\n---\n\n## Context\n- (why this decision is needed)\n\n## Decision\n- (the decision)\n\n## Consequences\n- (trade-offs and follow-ups)\n\n## References\n- (REQ/RULE links)\n""",
 }
 
 DEFAULT_PROMPTS = {
@@ -140,7 +171,23 @@ LLM은 다음 기준에 따라 각 문서를 엄격하게 평가해야 합니다
     - **제안**: 규칙을 강화하거나, 예외 상황을 문서에 명시할 것.
 
 (이하 BOARD, FRONT 동일 포맷)
-```
+\n
+\n---
+\n
+\n### 🚀 [Recommended Actions] 이후 진행 가이드
+\n
+\n감사 결과를 바탕으로 사용자가 취해야 할 구체적인 행동을 제안하세요.
+\n
+\n1. **승인 필요 (Needs Approval)**: ⚠️/❌ 항목 중, 사용자의 확인이 필요한 정책적 결정 사항.
+\n2. **수정 제안 (Edits)**: 즉시 문서를 수정해야 하는 사항 (구체적인 문구 제안 포함).
+\n3. **새로운 태스크 (New Tasks)**: 문서 정합성을 위해 새로 등록해야 할 작업 (예: "로그 시스템 리팩토링 스펙 문서 작성").
+\n
+\n**[작성 예시]**
+\n### 🚀 이후 진행 가이드
+\n1. **CONVENTIONS.md 업데이트**: `Type Hint` 규칙을 `Strict`에서 `Optional`로 완화하는 문구로 수정할 것을 제안합니다.
+\n2. **GOALS.md 검토**: '실시간 채팅' 기능이 In-Scope인지 PM과 협의 후 Scope 섹션 업데이트 필요.
+\n```
+\n
 
 ---
 
@@ -210,7 +257,7 @@ def load_default_prompts() -> dict[str, str]:
 def load_default_system_files() -> dict[str, str]:
     """Load VERSION and VERSIONING.md from src/.system_defaults/."""
     files: dict[str, str] = {}
-    for name in ["VERSION", "VERSIONING.md"]:
+    for name in ["VERSION", "VERSIONING.md", "CHANGELOG.md"]:
         src_path = SRC_DEFAULTS_ROOT / name
         if src_path.exists():
             files[name] = read_text(src_path)
@@ -219,6 +266,7 @@ def load_default_system_files() -> dict[str, str]:
 
 def load_default_src_files() -> dict[str, str]:
     """Load source files - either from defaults dir or embedded in atlas.py."""
+    import base64
     files: dict[str, str] = {}
     
     # Try loading from src/.system_defaults/src/ first (development mode)
@@ -227,16 +275,13 @@ def load_default_src_files() -> dict[str, str]:
         for path in src_dir.glob("*.py"):
             files[path.name] = read_text(path)
     
-    # If no files found and running as bundled atlas.py, embed self
-    if not files:
-        # When running as atlas.py, include self as the source
-        _self_path = Path(__file__).resolve()
-        if _self_path.name == "atlas.py" or _self_path.name != "atlas_cli.py":
-            # Read the current file content (which contains all the code)
-            try:
-                files["atlas_cli.py"] = read_text(_self_path)
-            except Exception:
-                pass
+    # If no files found, try embedded source (distribution mode)
+    if not files and EMBEDDED_SRC_B64 != "__EMBEDDED_SRC_PLACEHOLDER__":
+        try:
+            decoded = base64.b64decode(EMBEDDED_SRC_B64).decode("utf-8")
+            files["atlas_cli.py"] = decoded
+        except Exception:
+            pass
     
     return files
 
@@ -299,6 +344,23 @@ def next_id(prefix: str, domain: str, dir_path: Path, pattern: re.Pattern) -> st
     return f"{prefix}-{domain}-{max_n + 1:03d}"
 
 
+def next_run_step(req_id: str) -> int:
+    match = REQ_ID_PATTERN.match(req_id)
+    if not match:
+        return 1
+    domain = match.group(1)
+    number = match.group(2)
+    max_step = 0
+    if RUN_DIR.exists():
+        for path in RUN_DIR.glob(f"RUN-REQ-{domain}-{number}-step-*.md"):
+            run_match = RUN_ID_PATTERN.match(path.stem)
+            if run_match and run_match.group(1) == "REQ":
+                step = int(run_match.group(4))
+                if step > max_step:
+                    max_step = step
+    return max_step + 1
+
+
 def update_meta_line(text: str, key: str, value: str) -> str:
     lines = text.splitlines()
     updated = False
@@ -359,7 +421,46 @@ def update_brief_status(brief_id: str, status: str) -> bool:
 
 
 def extract_ids_from_text(text: str) -> list[str]:
-    return re.findall(r"(?:REQ|RULE|CQ|BRIEF|RUN)-[A-Z]+-\d{3}(?:-step-\d{2})?", text)
+    return re.findall(r"(?:REQ|RULE|ADR|CQ|BRIEF|RUN)-[A-Z]+-\d{3}(?:-step-\d{2})?", text)
+
+
+def derive_title(text: str, fallback: str = "User Request") -> str:
+    title_src = " ".join(text.strip().splitlines()).strip()
+    if not title_src:
+        return fallback
+    return title_src[:60] + ("..." if len(title_src) > 60 else "")
+
+
+def is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+def req_id_from_run_id(run_id: str) -> Optional[str]:
+    match = RUN_ID_PATTERN.match(run_id)
+    if not match:
+        return None
+    kind, domain, number, _step = match.groups()
+    if kind != "REQ":
+        return None
+    return f"REQ-{domain}-{number}"
+
+
+def detect_git_hash() -> Optional[str]:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except Exception:
+        return None
+    value = result.stdout.strip()
+    return value if value else None
 
 
 def write_last_run(state: dict) -> None:
@@ -408,6 +509,13 @@ def resolve_linked_docs(run_path: Path) -> dict[str, Path]:
     docs = {}
     text = read_text(run_path)
     meta = extract_meta(text)
+
+    # RUN -> REQ (direct)
+    req_id = meta.get("REQ") or req_id_from_run_id(run_path.stem)
+    if req_id and REQ_ID_PATTERN.match(req_id):
+        req_path = REQ_DIR / f"{req_id}.md"
+        if req_path.exists():
+            docs["REQ"] = req_path
     
     # RUN -> BRIEF
     brief_id = meta.get("Brief")
@@ -622,7 +730,22 @@ def apply_req_changes(diff: dict) -> bool:
 def init_command(_args: argparse.Namespace) -> int:
     overwrite = getattr(_args, "overwrite", False)
     ensure_dir(ATLAS_ROOT)
-    for d in [REQ_DIR, RULE_DIR, CQ_DIR, BRIEF_DIR, RUN_DIR, IDEA_DIR, TEMPLATES_DIR, STATE_DIR, SYSTEM_ROOT / "prompts", SYSTEM_ROOT / "src"]:
+    for d in [
+        REQ_DIR,
+        RULE_DIR,
+        ADR_DIR,
+        CQ_DIR,
+        VIEWS_DIR,
+        INBOX_DIR,
+        DRAFTS_DIR,
+        BRIEF_DIR,
+        RUN_DIR,
+        ARCHIVE_DIR,
+        TEMPLATES_DIR,
+        STATE_DIR,
+        SYSTEM_ROOT / "prompts",
+        SYSTEM_ROOT / "src",
+    ]:
         ensure_dir(d)
 
     for path, content in load_default_top_docs().items():
@@ -662,15 +785,9 @@ def init_command(_args: argparse.Namespace) -> int:
     return 0
 
 
-def intake_command(args: argparse.Namespace) -> int:
-    domain = args.domain.upper()
+def create_brief_doc(text: str, domain: str) -> Path:
     brief_id = next_id("BRIEF", domain, BRIEF_DIR, BRIEF_ID_PATTERN)
-
-    title_src = " ".join(args.text.strip().splitlines()).strip()
-    title = title_src[:60] + ("..." if len(title_src) > 60 else "")
-    if not title:
-        title = "User Request"
-
+    title = derive_title(text)
     content = f"""# [{brief_id}] {title}
 
 > **ID**: {brief_id}
@@ -679,7 +796,7 @@ def intake_command(args: argparse.Namespace) -> int:
 > **Date**: {now_date()}
 
 ## 1. User Request
-{args.text.strip()}
+{text.strip()}
 
 ## 2. Intent Summary
 - Goal: 
@@ -698,12 +815,46 @@ def intake_command(args: argparse.Namespace) -> int:
 - [ ] 
 """
     path = BRIEF_DIR / f"{brief_id}.md"
+    ensure_dir(BRIEF_DIR)
     write_text(path, content)
-    print(f"[OK] Created {path}")
+    return path
+
+
+def capture_command(args: argparse.Namespace) -> int:
+    domain = args.domain.upper()
+    text = args.text.strip()
+    if not text:
+        print("[ERR] Empty input.")
+        return 1
+
+    title = derive_title(text)
+    req_ids = [rid for rid in extract_ids_from_text(text) if rid.startswith("REQ-")]
+    if not req_ids:
+        req_ids = [next_id("REQ", domain, REQ_DIR, REQ_ID_PATTERN)]
+
+    created = []
+    for req_id in req_ids:
+        if not REQ_ID_PATTERN.match(req_id):
+            print(f"[WARN] Skipping invalid REQ ID: {req_id}")
+            continue
+        create_req_stub(req_id, title=title)
+        req_path = REQ_DIR / f"{req_id}.md"
+        if req_path.exists():
+            append_capture_note(req_path, text)
+        view_path = ensure_view_doc(req_id, title)
+        created.append((req_path, view_path))
+
+    if getattr(args, "to", None) == "brief":
+        brief_path = create_brief_doc(text, domain)
+        print(f"[OK] Created {brief_path}")
+
+    for req_path, view_path in created:
+        print(f"[OK] Updated {req_path}")
+        print(f"[OK] Updated {view_path}")
     return 0
 
 
-def create_req_stub(req_id: str) -> None:
+def create_req_stub(req_id: str, title: Optional[str] = None) -> None:
     path = REQ_DIR / f"{req_id}.md"
     if path.exists():
         return
@@ -712,64 +863,83 @@ def create_req_stub(req_id: str) -> None:
         return
     domain = match.group(1)
     template = load_template("REQ.md")
-    content = (
-        template.replace("REQ-XXX-001", req_id)
-        .replace("Domain**: XXX", f"Domain**: {domain}")
-        .replace("Last Updated**: YYYY-MM-DD", f"Last Updated**: {now_date()}")
-    )
+    title = title or "Title"
+    content = template.replace("REQ-XXX-001", req_id)
+    content = content.replace("# [REQ-XXX-001] Title", f"# [{req_id}] {title}")
+    content = content.replace("Domain**: XXX", f"Domain**: {domain}")
+    content = content.replace("Last Updated**: YYYY-MM-DD", f"Last Updated**: {now_date()}")
     write_text(path, content)
 
 
-def plan_command(args: argparse.Namespace) -> int:
-    brief_id = args.brief_id
-    if brief_id.endswith(".md"):
-        brief_id = Path(brief_id).stem
+def append_capture_note(path: Path, text: str) -> None:
+    note = text.strip()
+    if not note:
+        return
+    content = read_text(path)
+    stamp = now_date()
+    block = f"\n## Capture ({stamp})\n{note}\n"
+    if f"## Capture ({stamp})" in content:
+        return
+    write_text(path, content.rstrip() + block)
 
-    match = BRIEF_ID_PATTERN.match(brief_id)
+
+def ensure_view_doc(req_id: str, title: str) -> Path:
+    path = VIEWS_DIR / f"{req_id}.md"
+    if not path.exists():
+        template = load_template("VIEW.md")
+        content = template.replace("REQ-XXX-001", req_id)
+        content = content.replace("# [VIEW-REQ-XXX-001] Title", f"# [VIEW-{req_id}] {title}")
+        content = content.replace("Last Updated**: YYYY-MM-DD", f"Last Updated**: {now_date()}")
+        write_text(path, content)
+        return path
+
+    content = read_text(path)
+    req_link = f"../req/{req_id}.md"
+    if req_link not in content:
+        if "## References (SSOT)" not in content:
+            content = content.rstrip() + "\n\n## References (SSOT)\n"
+        content = content.rstrip() + f"\n- [{req_id}]({req_link})\n"
+        write_text(path, content)
+    return path
+
+
+def run_command(args: argparse.Namespace) -> int:
+    req_id = args.req_id
+    if req_id.endswith(".md"):
+        req_id = Path(req_id).stem
+
+    match = REQ_ID_PATTERN.match(req_id)
     if not match:
-        print(f"[ERR] Invalid BRIEF ID: {brief_id}")
+        print(f"[ERR] Invalid REQ ID: {req_id}")
         return 1
 
-    brief_path = BRIEF_DIR / f"{brief_id}.md"
-    if not brief_path.exists():
-        print(f"[ERR] BRIEF not found: {brief_path}")
+    req_path = REQ_DIR / f"{req_id}.md"
+    if not req_path.exists():
+        print(f"[ERR] REQ not found: {req_path}")
         return 1
 
     domain = match.group(1)
     number = match.group(2)
-    run_id = f"RUN-BRIEF-{domain}-{number}-step-01"
+    step = getattr(args, "step", None) or next_run_step(req_id)
+    run_id = f"RUN-REQ-{domain}-{number}-step-{int(step):02d}"
     run_path = RUN_DIR / f"{run_id}.md"
     if run_path.exists():
         print(f"[ERR] RUN already exists: {run_path}")
         return 1
 
-    brief_text = read_text(brief_path)
-    artifacts = parse_affected_artifacts(brief_text)
-    req_ids = [
-        rid
-        for rid in extract_ids_from_text(" ".join(artifacts["Create"] + artifacts["Modify"]))
-        if rid.startswith("REQ-")
-    ]
-    for req_id in req_ids:
-        create_req_stub(req_id)
-
-    input_lines = [f"- {brief_id}"]
-    for req_id in req_ids:
-        input_lines.append(f"- {req_id}")
-
     content = f"""# [{run_id}] Plan
 
 > **ID**: {run_id}
-> **Brief**: {brief_id}
+> **REQ**: {req_id}
 > **Status**: Planned
 > **Started**: {now_date()}
 > **Git**: -
 > **Completed**: -
 
-## Input
-{os.linesep.join(input_lines)}
+## Target REQ
+- {req_id}
 
-## Steps
+## Plan
 - [ ] 
 
 ## Verification
@@ -785,7 +955,7 @@ def plan_command(args: argparse.Namespace) -> int:
     write_last_run(
         {
             "run_id": run_id,
-            "brief_id": brief_id,
+            "req_id": req_id,
             "stage": "executing",
             "updated_at": now_iso(),
         }
@@ -793,6 +963,12 @@ def plan_command(args: argparse.Namespace) -> int:
 
     print(f"[OK] Created {run_path}")
     return 0
+
+
+def plan_command(args: argparse.Namespace) -> int:
+    print("[WARN] 'plan' is deprecated. Use 'run' instead.")
+    args.req_id = args.brief_id
+    return run_command(args)
 
 
 def finish_command(args: argparse.Namespace) -> int:
@@ -809,26 +985,46 @@ def finish_command(args: argparse.Namespace) -> int:
         print(f"[ERR] RUN not found: {run_path}")
         return 1
 
+    git_hash = args.git
+    if not git_hash:
+        git_hash = detect_git_hash()
+    if not git_hash:
+        print("[ERR] Missing git hash. Provide --git or ensure git is available.")
+        return 1
+
     text = read_text(run_path)
     meta = extract_meta(text)
     brief_id = meta.get("Brief")
+    req_id = meta.get("REQ") or req_id_from_run_id(run_id)
     status = "Completed" if args.success else "Failed"
     text = update_meta_line(text, "Status", status)
-    text = update_meta_line(text, "Git", args.git)
+    text = update_meta_line(text, "Git", git_hash)
     text = update_meta_line(text, "Completed", now_date())
     write_text(run_path, text)
 
     if brief_id:
         update_brief_status(brief_id, status)
 
+    if req_id:
+        req_path = REQ_DIR / f"{req_id}.md"
+        if req_path.exists():
+            req_text = read_text(req_path)
+            req_text = update_meta_line(req_text, "Implemented-Git", git_hash)
+            req_text = update_meta_line(req_text, "Linked-RUN", run_id)
+            req_text = update_meta_line(req_text, "Last Updated", now_date())
+            write_text(req_path, req_text)
+            print(f"[OK] Updated {req_path}")
+
     last_run_state = {
         "run_id": run_id,
         "stage": "finished",
-        "git_hash": args.git,
+        "git_hash": git_hash,
         "completed_at": now_iso(),
     }
     if brief_id:
         last_run_state["brief_id"] = brief_id
+    if req_id:
+        last_run_state["req_id"] = req_id
     write_last_run(last_run_state)
 
     print(f"[OK] Updated {run_path}")
@@ -909,7 +1105,21 @@ def doctor_command(args: argparse.Namespace) -> int:
     brief_statuses: dict[str, str] = {}
     run_brief_statuses: list[tuple[str, str, str, Optional[datetime]]] = []
 
-    required_dirs = [REQ_DIR, RULE_DIR, CQ_DIR, BRIEF_DIR, RUN_DIR, SYSTEM_ROOT, TEMPLATES_DIR, STATE_DIR]
+    required_dirs = [
+        REQ_DIR,
+        RULE_DIR,
+        ADR_DIR,
+        CQ_DIR,
+        VIEWS_DIR,
+        INBOX_DIR,
+        DRAFTS_DIR,
+        BRIEF_DIR,
+        RUN_DIR,
+        ARCHIVE_DIR,
+        SYSTEM_ROOT,
+        TEMPLATES_DIR,
+        STATE_DIR,
+    ]
     for path in required_dirs:
         if not path.exists():
             print(f"[ERR] Missing directory: {path}")
@@ -924,7 +1134,7 @@ def doctor_command(args: argparse.Namespace) -> int:
         if not path.exists():
             print(f"[WARN] Missing optional doc: {path}")
 
-    scan_dirs = [REQ_DIR, RULE_DIR, CQ_DIR, BRIEF_DIR, RUN_DIR]
+    scan_dirs = [REQ_DIR, RULE_DIR, ADR_DIR, CQ_DIR, BRIEF_DIR, RUN_DIR]
     all_docs = iter_md_files(scan_dirs)
     all_ids: set[str] = set()
 
@@ -949,6 +1159,7 @@ def doctor_command(args: argparse.Namespace) -> int:
         expected_prefix = {
             "req": "REQ",
             "rule": "RULE",
+            "adr": "ADR",
             "cq": "CQ",
             "brief": "BRIEF",
             "runs": "RUN",
@@ -987,6 +1198,7 @@ def doctor_command(args: argparse.Namespace) -> int:
         pattern = {
             "REQ": REQ_ID_PATTERN,
             "RULE": RULE_ID_PATTERN,
+            "ADR": ADR_ID_PATTERN,
             "CQ": CQ_ID_PATTERN,
             "BRIEF": BRIEF_ID_PATTERN,
             "RUN": RUN_ID_PATTERN,
@@ -1022,6 +1234,13 @@ def doctor_command(args: argparse.Namespace) -> int:
                         print(f"[ERR] Must-Read missing target: {path} -> {ref_id}")
                         issues += 1
 
+        if expected_prefix == "REQ":
+            status = meta.get("Status", "")
+            implemented_git = meta.get("Implemented-Git", "").strip()
+            if normalize_status(status) == "implemented" and (not implemented_git or implemented_git == "-"):
+                print(f"[WARN] Implemented REQ missing git hash: {path}")
+                issues += 1
+
         if args.links:
             for target in iter_links(text):
                 if not target or target.startswith("#"):
@@ -1032,6 +1251,40 @@ def doctor_command(args: argparse.Namespace) -> int:
                 if not resolved.exists():
                     print(f"[ERR] Broken link: {path} -> {target}")
                     issues += 1
+
+    # View -> REQ link validation
+    view_refs: set[str] = set()
+    for path in iter_md_files([VIEWS_DIR]):
+        text = read_text(path)
+        meta = extract_meta(text)
+        refs_value = meta.get("Refs")
+        if refs_value:
+            for ref_id in parse_must_read(refs_value):
+                if ref_id.startswith("REQ-"):
+                    view_refs.add(ref_id)
+                    ref_path = REQ_DIR / f"{ref_id}.md"
+                    if not ref_path.exists():
+                        print(f"[WARN] View refs missing REQ: {path} -> {ref_id}")
+                        issues += 1
+        for target in iter_links(text):
+            if not target or target.startswith("#"):
+                continue
+            if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", target):
+                continue
+            resolved = (path.parent / target).resolve()
+            if is_relative_to(resolved, REQ_DIR):
+                if not resolved.exists():
+                    print(f"[WARN] Broken REQ link in view: {path} -> {target}")
+                    issues += 1
+                else:
+                    view_refs.add(resolved.stem)
+
+    # REQ without any view reference
+    req_ids = [path.stem for path in all_docs if path.parent.name == "req"]
+    for req_id in req_ids:
+        if req_id not in view_refs:
+            print(f"[WARN] Missing view reference for REQ: {req_id}")
+            issues += 1
 
     latest_run_by_brief: dict[str, tuple[str, str, Optional[datetime]]] = {}
     for run_id, brief_id, run_status, completed_at in run_brief_statuses:
@@ -1085,6 +1338,57 @@ def doctor_command(args: argparse.Namespace) -> int:
     return 0 if issues == 0 else 1
 
 
+    print(f"[DONE] Doctor completed with {issues} issue(s).")
+    return 0 if issues == 0 else 1
+
+
+def parse_version(v: str) -> tuple[int, ...]:
+    try:
+        return tuple(map(int, v.strip().split(".")))
+    except ValueError:
+        return (0, 0, 0)
+
+
+def check_version_update() -> None:
+    """Check if Atlas has been updated and print changelog."""
+    if not VERSION_PATH.exists():
+        return
+
+    installed_ver_str = VERSION_PATH.read_text(encoding="utf-8").strip()
+    if not installed_ver_str:
+        return
+
+    installed_ver = parse_version(installed_ver_str)
+    current_ver = parse_version(ATLAS_VERSION)
+
+    if current_ver > installed_ver:
+        print(f"\n[INFO] Upgrading Atlas: {installed_ver_str} -> {ATLAS_VERSION}")
+        print("=" * 60)
+        
+        # Collect versions to print
+        versions_to_print = []
+        for ver_str in CHANGELOG:
+            ver = parse_version(ver_str)
+            if ver > installed_ver and ver <= current_ver:
+                versions_to_print.append((ver, ver_str))
+        
+        # Sort by version descending
+        versions_to_print.sort(key=lambda x: x[0], reverse=True)
+        
+        for _, ver_str in versions_to_print:
+            print(f"[{ver_str}]")
+            for change in CHANGELOG[ver_str]:
+                print(f"- {change}")
+            print()
+            
+        print("=" * 60)
+        
+        # Update VERSION file
+        if VERSION_PATH.exists():
+            write_text(VERSION_PATH, ATLAS_VERSION)
+            print(f"[OK] Updated VERSION file to {ATLAS_VERSION}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="atlas")
     parser.add_argument(
@@ -1097,16 +1401,27 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init")
     init.add_argument("--overwrite", action="store_true")
 
+    capture = sub.add_parser("capture")
+    capture.add_argument("text")
+    capture.add_argument("--domain", default="GEN")
+    capture.add_argument("--to", choices=["brief"])
+
     intake = sub.add_parser("intake")
     intake.add_argument("text")
     intake.add_argument("--domain", default="GEN")
+    intake.add_argument("--to", choices=["brief"])
+
+    run = sub.add_parser("run")
+    run.add_argument("req_id")
+    run.add_argument("--step", type=int)
 
     plan = sub.add_parser("plan")
     plan.add_argument("brief_id")
+    plan.add_argument("--step", type=int)
 
     finish = sub.add_parser("finish")
     finish.add_argument("run_id")
-    finish.add_argument("--git", required=True)
+    finish.add_argument("--git")
     finish.add_argument("--success", type=lambda v: v.lower() == "true", required=True)
 
     doctor = sub.add_parser("doctor")
@@ -1134,10 +1449,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("[INFO] .atlas not found. Initializing...")
         init_command(args)
 
+    if args.command != "init":
+        check_version_update()
+
     if args.command == "init":
         return init_command(args)
+    if args.command == "capture":
+        return capture_command(args)
     if args.command == "intake":
-        return intake_command(args)
+        print("[WARN] 'intake' is deprecated. Use 'capture' instead.")
+        return capture_command(args)
+    if args.command == "run":
+        return run_command(args)
     if args.command == "plan":
         return plan_command(args)
     if args.command == "finish":

@@ -4,6 +4,8 @@
 > **Domain**: XXX
 > **Status**: Draft
 > **Last Updated**: YYYY-MM-DD
+> **Implemented-Git**: -
+> **Linked-RUN**: -
 > **Must-Read**: RULE-XXX-001
 
 ---
