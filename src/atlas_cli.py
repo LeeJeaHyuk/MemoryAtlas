@@ -114,6 +114,100 @@ DEFAULT_TEMPLATES = {
     "ADR.md": """# [ADR-XXX-001] Title\n\n> **ID**: ADR-XXX-001\n> **Domain**: XXX\n> **Status**: Draft\n> **Date**: YYYY-MM-DD\n> **Supersedes**: -\n> **Superseded-By**: -\n\n---\n\n## Context\n- (why this decision is needed)\n\n## Decision\n- (the decision)\n\n## Consequences\n- (trade-offs and follow-ups)\n\n## References\n- (REQ/RULE links)\n""",
 }
 
+DEFAULT_DIR_READMES = {
+    "req": r"""# Requirements (REQ)
+
+Requirements define **what** the system must do. They are the authoritative Source of Truth (SSOT).
+
+## Naming Convention
+- **File**: `REQ-{Domain}-{Number}.md` (e.g., `REQ-CORE-001.md`)
+- **ID Pattern**: `^REQ-([A-Z]+)-(\d{3})$`
+
+## Required Metadata
+- `ID`: Must match filename.
+- `Domain`: Project domain (e.g., `CORE`, `API`, `UI`).
+- `Status`: `Draft` | `Active` | `Implemented` | `Rejected`.
+- `Must-Read`: Comma-separated list of dependent `RULE` IDs (or `None`).
+- `Implemented-Git`: Git commit hash (Required if Status is Implemented).
+- `Linked-RUN`: executing RUN ID (Required if Status is Implemented).
+
+## Rules
+1. **Atomic**: Each REQ should be small enough to be implemented and verified in one go.
+2. **Testable**: Must have clear Acceptance Criteria.
+3. **Immutable**: Once Implemented, do not change without a new RUN.
+""",
+    "views": r"""# Views (VIEW)
+
+Views provide High-Level context, summaries, or specific angles on Requirements. They are **not** SSOT, but point to SSOT.
+
+## Naming Convention
+- **File**: `VIEW-{Referenced_ID}.md` (e.g., `VIEW-REQ-CORE-001.md`)
+- **ID Pattern**: `^VIEW-(.*)$`
+
+## Required Metadata
+- `Refs`: The primary ID this view discusses.
+
+## Structure Rules
+- **References (SSOT index)**: Must list ALL `REQ` or `RULE` IDs mentioned in the text.
+- **Normative Keywords**: If you use "MUST", "SHOULD", etc., you must cite a specific ID (e.g. `... must be fast (@REQ-PERF-001)`).
+
+## Usage
+Use Views to write human-readable design docs, usage guides, or technical specs that aggregate multiple Requirements.
+""",
+    "runs": r"""# Runs (RUN)
+
+Runs are **Execution Plans**. They track the "work" done to implement a Requirement.
+
+## Naming Convention
+- **File**: `RUN-{Target_ID}-step-{NN}.md` (e.g. `RUN-REQ-CORE-001-step-01.md`)
+- **ID Pattern**: `^RUN-(BRIEF|REQ)-([A-Z]+)-(\d{3})-step-(\d{2})$`
+
+## Workflow
+1. **Plan**: `atlas run REQ-XXX-001` (Creates RUN doc).
+2. **Execute**: Write code, run tests. Check off items in `## Plan` and `## Verification`.
+3. **Finish**: `atlas finish RUN-... --success true` (Updates REQ status & logs Git hash).
+
+## Rules
+- Never implement a REQ without a RUN.
+- Verification steps are mandatory.
+""",
+    "rule": r"""# Rules (RULE)
+
+Rules define global constraints, policies, or invariants that apply across multiple Requirements.
+
+## Naming Convention
+- **File**: `RULE-{Domain}-{Number}.md`
+- **ID Pattern**: `^RULE-([A-Z]+)-(\d{3})$`
+
+## Required Metadata
+- `ID`: Must match filename.
+- `Priority`: Low | Medium | High | Critical.
+""",
+    "adr": r"""# Architecture Decision Records (ADR)
+
+ADRs capture significant architectural decisions and their context.
+
+## Naming Convention
+- **File**: `ADR-{Domain}-{Number}.md`
+- **ID Pattern**: `^ADR-([A-Z]+)-(\d{3})$`
+
+## Status
+- Draft | Proposed | Accepted | Rejected | Deprecated | Superseded
+""",
+    "cq": r"""# Competency Questions (CQ)
+
+CQs are questions the system must be able to answer (essentially Use Cases/Tests).
+
+## Naming Convention
+- **File**: `CQ-{Domain}-{Number}.md`
+- **ID Pattern**: `^CQ-([A-Z]+)-(\d{3})$`
+""",
+    "drafts/brief": """# Briefs (BRIEF)
+
+Briefs are scratchpads for incoming requests before they are formalized into Runs or Reqs.
+""",
+}
+
 DEFAULT_PROMPTS = {
     "onboarding.md": """# Atlas Audit Prompt
 
@@ -750,6 +844,15 @@ def init_command(_args: argparse.Namespace) -> int:
         SYSTEM_ROOT / "src",
     ]:
         ensure_dir(d)
+
+    for dir_name, content in DEFAULT_DIR_READMES.items():
+        readme_path = ATLAS_ROOT / dir_name / "README.md"
+        if overwrite or not readme_path.exists():
+            write_text(readme_path, content)
+            if overwrite:
+                print(f"[OK] Updated {readme_path}")
+            else:
+                print(f"[OK] Created {readme_path}")
 
     for path, content in load_default_top_docs().items():
         if overwrite or not path.exists():
