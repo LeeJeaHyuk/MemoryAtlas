@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import subprocess
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Optional
@@ -319,6 +320,25 @@ def read_text(path: Path) -> str:
 
 def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
+
+
+def backup_file(path: Path) -> Optional[Path]:
+    """Backup file to ARCHIVE_DIR with timestamp."""
+    if not path.exists():
+        return None
+    
+    ensure_dir(ARCHIVE_DIR)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    safe_name = f"{path.parent.name}_{path.name}"
+    backup_name = f"{timestamp}_{safe_name}"
+    backup_path = ARCHIVE_DIR / backup_name
+    
+    try:
+        shutil.copy2(path, backup_path)
+        return backup_path
+    except Exception as e:
+        print(f"[WARN] Failed to backup {path}: {e}")
+        return None
 
 
 def load_default_top_docs() -> dict[Path, str]:
@@ -848,6 +868,11 @@ def init_command(_args: argparse.Namespace) -> int:
     for dir_name, content in DEFAULT_DIR_READMES.items():
         readme_path = ATLAS_ROOT / dir_name / "README.md"
         if overwrite or not readme_path.exists():
+            if overwrite and readme_path.exists():
+                backup = backup_file(readme_path)
+                if backup:
+                    print(f"[INFO] Backed up {readme_path.name} to archive/")
+            
             write_text(readme_path, content)
             if overwrite:
                 print(f"[OK] Updated {readme_path}")
@@ -856,17 +881,32 @@ def init_command(_args: argparse.Namespace) -> int:
 
     for path, content in load_default_top_docs().items():
         if overwrite or not path.exists():
+            if overwrite and path.exists():
+                backup = backup_file(path)
+                if backup:
+                    print(f"[INFO] Backed up {path.name} to archive/")
+            
             write_text(path, content)
 
     for name, content in load_default_templates().items():
         template_path = TEMPLATES_DIR / name
         if overwrite or not template_path.exists():
+            if overwrite and template_path.exists():
+                backup = backup_file(template_path)
+                if backup:
+                    print(f"[INFO] Backed up {template_path.name} to archive/")
+            
             write_text(template_path, content)
 
     prompts_dir = SYSTEM_ROOT / "prompts"
     for name, content in load_default_prompts().items():
         prompt_path = prompts_dir / name
         if overwrite or not prompt_path.exists():
+            if overwrite and prompt_path.exists():
+                backup = backup_file(prompt_path)
+                if backup:
+                    print(f"[INFO] Backed up {prompt_path.name} to archive/")
+            
             write_text(prompt_path, content)
             print(f"[OK] Created {prompt_path}")
 
