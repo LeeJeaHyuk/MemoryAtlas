@@ -865,20 +865,17 @@ def init_command(_args: argparse.Namespace) -> int:
     ]:
         ensure_dir(d)
 
+    # README files in directories - system files, no backup needed
     for dir_name, content in DEFAULT_DIR_READMES.items():
         readme_path = ATLAS_ROOT / dir_name / "README.md"
         if overwrite or not readme_path.exists():
-            if overwrite and readme_path.exists():
-                backup = backup_file(readme_path)
-                if backup:
-                    print(f"[INFO] Backed up {readme_path.name} to archive/")
-            
             write_text(readme_path, content)
             if overwrite:
                 print(f"[OK] Updated {readme_path}")
             else:
                 print(f"[OK] Created {readme_path}")
 
+    # Top docs - USER-EDITABLE, backup before overwrite
     for path, content in load_default_top_docs().items():
         if overwrite or not path.exists():
             if overwrite and path.exists():
@@ -887,28 +884,21 @@ def init_command(_args: argparse.Namespace) -> int:
                     print(f"[INFO] Backed up {path.name} to archive/")
             
             write_text(path, content)
+            print(f"[OK] {'Updated' if overwrite else 'Created'} {path}")
 
+    # Templates - system files, no backup needed
     for name, content in load_default_templates().items():
         template_path = TEMPLATES_DIR / name
         if overwrite or not template_path.exists():
-            if overwrite and template_path.exists():
-                backup = backup_file(template_path)
-                if backup:
-                    print(f"[INFO] Backed up {template_path.name} to archive/")
-            
             write_text(template_path, content)
 
+    # Prompts - system files, no backup needed
     prompts_dir = SYSTEM_ROOT / "prompts"
     for name, content in load_default_prompts().items():
         prompt_path = prompts_dir / name
         if overwrite or not prompt_path.exists():
-            if overwrite and prompt_path.exists():
-                backup = backup_file(prompt_path)
-                if backup:
-                    print(f"[INFO] Backed up {prompt_path.name} to archive/")
-            
             write_text(prompt_path, content)
-            print(f"[OK] Created {prompt_path}")
+            print(f"[OK] {'Updated' if overwrite else 'Created'} {prompt_path}")
 
     for name, content in load_default_system_files().items():
         system_path = SYSTEM_ROOT / name
