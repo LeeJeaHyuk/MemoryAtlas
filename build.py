@@ -60,6 +60,15 @@ def main() -> int:
 
     out_path.write_text(output, encoding="utf-8")
     print(f"Wrote {out_path}")
+
+    # Sync CONVENTIONS after build to keep Atlas rules aligned.
+    conventions_src = root / "src" / ".system_defaults" / "top_docs" / "CONVENTIONS.md"
+    conventions_dst = root / ".atlas" / "CONVENTIONS.md"
+    if conventions_src.exists():
+        conventions_dst.parent.mkdir(parents=True, exist_ok=True)
+        conventions_dst.write_text(conventions_src.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"Synchronized {conventions_dst}")
+
     return 0
 
 

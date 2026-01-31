@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import subprocess
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Optional
@@ -48,6 +49,7 @@ SRC_DEFAULTS_ROOT = REPO_ROOT / "src" / ".system_defaults"
 SRC_DEFAULT_TEMPLATES_DIR = SRC_DEFAULTS_ROOT / "templates"
 SRC_DEFAULT_TOP_DOCS_DIR = SRC_DEFAULTS_ROOT / "top_docs"
 SRC_DEFAULT_PROMPTS_DIR = SRC_DEFAULTS_ROOT / "prompts"
+SRC_DEFAULT_DIR_READMES_DIR = SRC_DEFAULTS_ROOT / "dir_readmes"
 
 REQ_DIR = ATLAS_ROOT / "req"
 RULE_DIR = ATLAS_ROOT / "rule"
@@ -80,9 +82,9 @@ RUN_ID_PATTERN = re.compile(r"^RUN-(BRIEF|REQ)-([A-Z]+)-(\d{3})-step-(\d{2})$")
 META_RE = re.compile(r"^>\s*\*\*([^*]+)\*\*:\s*(.+)$")
 HEADER_ID_RE = re.compile(r"^#\s+\[([^\]]+)\]", re.M)
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-REQ_REF_RE = re.compile(r"REQ-[A-Z]+-\d{3}")
-REF_TOKEN_RE = re.compile(r"@(?P<id>REQ-[A-Z]+-\d{3})(?:#[^)\s]+)?")
-NORMATIVE_KEYWORDS = ["반드시", "해야", "불가", "금지", "항상"]
+SSOT_ID_RE = re.compile(r"(?:REQ|RULE|ADR)-[A-Z]+-\d{3}")
+REF_TOKEN_RE = re.compile(r"@(?P<id>(?:REQ|RULE|ADR)-[A-Z]+-\d{3})(?:#[^)\s]+)?")
+NORMATIVE_KEYWORDS = ["반드시", "해야", "불가", "금지", "항상", "MUST", "SHOULD", "MAY"]
 
 ALLOWED_MUST_READ_PREFIXES = {"RULE"}
 
@@ -97,107 +99,22 @@ CHECKBOX_UNCHECKED = re.compile(r"^(\s*)-\s*\[\s*\](.*)$")
 CHECKBOX_CHECKED = re.compile(r"^(\s*)-\s*\[x\](.*)$", re.IGNORECASE)
 TRACEABILITY_LINK_RE = re.compile(r"\*\*(?:Implements|Answers|Solved by|Implemented by)\*\*:\s*\[([^\]]+)\]\(([^)]+)\)")
 
-DEFAULT_TOP_DOCS = {
-    ATLAS_ROOT / "FRONT.md": """# Atlas\n\nThis repo uses Atlas vNext.\nUse: `python atlas.py init`\n\nQuick flow:\n1) `python atlas.py capture \"...\" --domain GEN`\n2) `python atlas.py run REQ-GEN-001`\n3) `python atlas.py finish RUN-REQ-GEN-001-step-01 --git <hash|no-commit> --success true`\n\nLinks: BOARD.md, CONVENTIONS.md, GOALS.md\n""",
-    ATLAS_ROOT / "BOARD.md": """# BOARD\n\n> 이 문서는 프로젝트의 **현재 작업 상태 스냅샷**을 나타냅니다.\n> 비어 있는 경우, 해당 상태에 해당하는 작업이 없음을 의미합니다.\n\n## Queue\n- (empty)\n\n## Active\n- (empty)\n\n## Done\n- (empty)\n\n> Last Reviewed: YYYY-MM-DD\n""",
-    ATLAS_ROOT / "CONVENTIONS.md": """# CONVENTIONS\n\n## Boundaries\n\n### Always\n- Keep REQ/RULE/ADR/CQ as authority; do not auto-edit without intent.\n- Record verification steps in RUN.\n\n### Ask First\n- Add or remove dependencies.\n- Change storage layout under `.atlas/`.\n\n### Never\n- Hardcode secrets.\n- Modify existing REQ/RULE/ADR/CQ silently.\n\n## Roles (one-line)\n- REQ: what the system must do (SSOT).\n- RULE: constraints that must always hold (SSOT).\n- ADR: architectural decisions (SSOT).\n- CQ: questions the system must answer.\n- VIEW: human-readable context.\n- DRAFT: optional intake scratchpad.\n- RUN: execution plan and evidence.\n\n## Verification\n- `python atlas.py doctor`\n- (project tests as defined)\n""",
-    ATLAS_ROOT / "GOALS.md": """# GOALS\n\n- Purpose: (fill in)\n- In scope: (fill in)\n- Out of scope: (fill in)\n""",
-}
+TOP_DOC_FILENAMES = ["FRONT.md", "BOARD.md", "CONVENTIONS.md", "GOALS.md"]
+TEMPLATE_NAMES = ["REQ.md", "RULE.md", "CQ.md", "BRIEF.md", "RUN.md", "VIEW.md", "ADR.md"]
+PROMPT_NAMES = ["onboarding.md"]
+DIR_README_PATHS = [
+    Path("req/README.md"),
+    Path("views/README.md"),
+    Path("runs/README.md"),
+    Path("rule/README.md"),
+    Path("adr/README.md"),
+    Path("cq/README.md"),
+    Path("drafts/brief/README.md"),
+]
 
-DEFAULT_TEMPLATES = {
-    "REQ.md": """# [REQ-XXX-001] Title\n\n> **ID**: REQ-XXX-001\n> **Domain**: XXX\n> **Status**: Draft\n> **Last Updated**: YYYY-MM-DD\n> **Implemented-Git**: -\n> **Linked-RUN**: -\n> **Must-Read**: RULE-XXX-001\n\n---\n\n## Decision\n- (what must be true)\n\n## Input\n- (inputs)\n\n## Output\n- (outputs)\n\n## Acceptance Criteria\n- [ ] (criteria)\n""",
-    "RULE.md": """# [RULE-XXX-001] Title\n\n> **ID**: RULE-XXX-001\n> **Domain**: XXX\n> **Priority**: Medium\n> **Last Updated**: YYYY-MM-DD\n> **Must-Read**: RULE-XXX-001\n\n---\n\n## Rule Statement\n- (always true / forbidden)\n\n## Scope\n- (where it applies)\n\n## Violation\n- (what counts as a violation)\n\n## Examples\n\n### Correct\n- (example)\n\n### Incorrect\n- (example)\n""",
-    "CQ.md": """# [CQ-XXX-001] Title\n\n> **ID**: CQ-XXX-001\n> **Domain**: XXX\n> **Status**: Draft\n> **Last Updated**: YYYY-MM-DD\n\n---\n\n## Question\n- (what must the system answer?)\n\n## Expected Answer (Criteria)\n1. ...\n2. ...\n\n## Traceability\n- **Solves by**: [REQ-XXX-001](../req/REQ-XXX-001.md)\n- **Constrained by**: [RULE-XXX-001](../rule/RULE-XXX-001.md)\n""",
-    "BRIEF.md": """# [BRIEF-XXX-001] Title\n\n> **ID**: BRIEF-XXX-001\n> **Domain**: XXX\n> **Status**: Active\n> **Date**: YYYY-MM-DD\n\n## 1. User Request\n- (raw text)\n\n## 2. Intent Summary\n- Goal:\n- Problem:\n\n## 3. Affected Artifacts\n- Create: \n- Modify: \n- Read: \n\n## 4. Proposed Changes\n1. \n2. \n\n## 5. Verification Criteria\n- [ ] \n""",
-    "RUN.md": """# [RUN-REQ-XXX-001-step-01] Title\n\n> **ID**: RUN-REQ-XXX-001-step-01\n> **REQ**: REQ-XXX-001\n> **Status**: Planned\n> **Started**: YYYY-MM-DD\n> **Git**: -\n> **Completed**: -\n\n## Target REQ\n- REQ-XXX-001\n\n## Plan\n- [ ] \n\n## Verification\n- [ ] Test\n- [ ] Spec\n- [ ] Boundary\n\n## Output\n- (files created/modified)\n""",
-    "VIEW.md": """# [VIEW-REQ-XXX-001] Title\n\n> **Refs**: REQ-XXX-001\n> **Last Updated**: YYYY-MM-DD\n\n## Summary\n- (human-readable summary)\n\n## References (SSOT)\n- [REQ-XXX-001](../req/REQ-XXX-001.md)\n""",
-    "ADR.md": """# [ADR-XXX-001] Title\n\n> **ID**: ADR-XXX-001\n> **Domain**: XXX\n> **Status**: Draft\n> **Date**: YYYY-MM-DD\n> **Supersedes**: -\n> **Superseded-By**: -\n\n---\n\n## Context\n- (why this decision is needed)\n\n## Decision\n- (the decision)\n\n## Consequences\n- (trade-offs and follow-ups)\n\n## References\n- (REQ/RULE links)\n""",
-}
 
-DEFAULT_PROMPTS = {
-    "onboarding.md": """# Atlas Audit Prompt
 
-> **Note**: 기존 `Onboarding Prompt`가 **`Audit Prompt`**로 재정의되었습니다.
-> 이 프롬프트는 더 이상 파일을 자동으로 생성하지 않으며, 현재 프로젝트와 문서 간의 **정합성(Consistency)을 감사(Audit)**하는 역할을 수행합니다.
 
----
-
-## Prompt
-
-```
-당신은 이 프로젝트의 **문서 정합성 감사관(Auditor)**입니다.
-이미 존재하는 Atlas 문서들(.atlas/ 폴더 내 GOALS, CONVENTIONS, BOARD, FRONT)이 현재 프로젝트의 실제 상태(코드, 최근 작업, 기술 스택 등)와 일치하는지 점검하는 것이 주 임무입니다.
-
-### [Strict Rules] 핵심 규칙
-1. **READ-ONLY**: 절대, 어떤 경우에도 기존 파일을 직접 수정하거나 내용을 자동 업데이트하지 마세요.
-2. **제안 모드 (Suggestion Only)**: 불일치나 누락이 발견되면 "어떻게 수정하면 좋을지"를 제안 형식으로만 출력하세요.
-3. **비판적 시각**: 단순히 내용을 요약하지 말고, "정말 이 내용이 현재 유효한가?"를 끊임없이 의심하며 검증하세요.
-
-### [Checklist] 검사 관점
-
-LLM은 다음 기준에 따라 각 문서를 엄격하게 평가해야 합니다:
-
-#### 1. GOALS.md (목표 정합성)
-- **Active Task와 일치 여부**: 현재 진행 중인 작업들이 GOALS에 정의된 핵심 목표를 벗어나지 않았는가?
-- **Scope Creep 감지**: 최근 논의되거나 추가된 기능이 In-Scope 범위 내에 있는가? 아니면 범위를 조용히 넓히고 있는가?
-
-#### 2. CONVENTIONS.md (규칙 현실성)
-- **위반 가능성 점검**: 실제 코드나 최근 커밋 내용이 문서의 규칙(Always, Never)을 위반하고 있지 않은가?
-- **구체성 검증**: 규칙이 너무 추상적이어서(예: "깨끗한 코드 작성") 실제 지침이 되지 못하는 부분은 없는가?
-
-#### 3. BOARD.md (현황 동기화)
-- **Active 상태 검증**: Active에 있는 작업이 현재 실제로 진행 중인가? (GOALS 범위를 벗어난 작업이 Active에 있는가?)
-- **Queue 방치 점검**: Queue에 있는 항목들이 너무 오래 방치되어, 현재의 GOALS와 맞지 않게 되었는가?
-
-#### 4. FRONT.md (환경 최신화)
-- **기술 스택 현실화**: 문서에 적힌 기술 스택이 실제 프로젝트 코드와 일치하는가?
-- **암묵적 전제**: 팀 내에서 암묵적으로 합의된 중요한 변경 사항이 문서에서 누락되지 않았는가?
-
----
-
-### [Audit Report] 출력 양식
-
-각 파일별로 아래 상태 아이콘을 사용하여 진단 결과를 출력하세요.
-
-- [PASS] **일치 (Pass)**
-- [WARN] **의심 (Warning)**: 확인이 필요하거나 모호한 부분.
-- [FAIL] **불일치/누락 (Fail)**: 명확한 오류, 즉시 수정 필요.
-
-**[작성 예시]**
-
-### 1. GOALS.md
-- [PASS] 핵심 목표 여전히 유효함.
-- [WARN] **의심**: '실시간 채팅' 기능이 최근 작업(Task-102)에서 구현 중인데, GOALS의 Scope에는 명시되지 않았음. 업데이트 필요.
-
-### 2. CONVENTIONS.md
-- [FAIL] **불일치**: 문서에는 'Type Hint 필수'라고 되어 있으나, 최근 `utils.py` 등에서 많은 함수가 타이핑 없이 작성됨.
-    - **제안**: 규칙을 강화하거나, 예외 상황을 문서에 명시할 것.
-
-(이하 BOARD, FRONT 동일 포맷)
-\n
-\n---
-\n
-\n### 🚀 [Recommended Actions] 이후 진행 가이드
-\n
-\n감사 결과를 바탕으로 사용자가 취해야 할 구체적인 행동을 제안하세요.
-\n
-\n1. **승인 필요 (Needs Approval)**: ⚠️/❌ 항목 중, 사용자의 확인이 필요한 정책적 결정 사항.
-\n2. **수정 제안 (Edits)**: 즉시 문서를 수정해야 하는 사항 (구체적인 문구 제안 포함).
-\n3. **새로운 태스크 (New Tasks)**: 문서 정합성을 위해 새로 등록해야 할 작업 (예: "로그 시스템 리팩토링 스펙 문서 작성").
-\n
-\n**[작성 예시]**
-\n### 🚀 이후 진행 가이드
-\n1. **CONVENTIONS.md 업데이트**: `Type Hint` 규칙을 `Strict`에서 `Optional`로 완화하는 문구로 수정할 것을 제안합니다.
-\n2. **GOALS.md 검토**: '실시간 채팅' 기능이 In-Scope인지 PM과 협의 후 Scope 섹션 업데이트 필요.
-\n```
-\n
-
----
-
-## How to execute
-이 프롬프트는 정기적으로(또는 프로젝트 방향성이 흔들릴 때) LLM에게 제시하여 문서 부채를 점검하는 용도로 사용합니다.
-""",
-}
 
 
 def get_version() -> str:
@@ -227,34 +144,87 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def backup_file(path: Path) -> Optional[Path]:
+    """Backup file to ARCHIVE_DIR with timestamp."""
+    if not path.exists():
+        return None
+    
+    ensure_dir(ARCHIVE_DIR)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    safe_name = f"{path.parent.name}_{path.name}"
+    backup_name = f"{timestamp}_{safe_name}"
+    backup_path = ARCHIVE_DIR / backup_name
+    
+    try:
+        shutil.copy2(path, backup_path)
+        return backup_path
+    except Exception as e:
+        print(f"[WARN] Failed to backup {path}: {e}")
+        return None
+
+
 def load_default_top_docs() -> dict[Path, str]:
-    docs = dict(DEFAULT_TOP_DOCS)
-    if SRC_DEFAULT_TOP_DOCS_DIR.is_dir():
-        for path in sorted(SRC_DEFAULT_TOP_DOCS_DIR.glob("*.md")):
-            target = ATLAS_ROOT / path.name
-            if target in docs:
-                docs[target] = read_text(path)
+    if not SRC_DEFAULT_TOP_DOCS_DIR.is_dir():
+        raise FileNotFoundError(f"Missing defaults dir: {SRC_DEFAULT_TOP_DOCS_DIR}")
+    docs: dict[Path, str] = {}
+    missing: list[str] = []
+    for name in TOP_DOC_FILENAMES:
+        src_path = SRC_DEFAULT_TOP_DOCS_DIR / name
+        if not src_path.exists():
+            missing.append(name)
+            continue
+        docs[ATLAS_ROOT / name] = read_text(src_path)
+    if missing:
+        raise FileNotFoundError(f"Missing top docs in defaults: {', '.join(missing)}")
     return docs
 
 
 def load_default_templates() -> dict[str, str]:
-    templates = dict(DEFAULT_TEMPLATES)
-    if SRC_DEFAULT_TEMPLATES_DIR.is_dir():
-        for name in DEFAULT_TEMPLATES:
-            src_path = SRC_DEFAULT_TEMPLATES_DIR / name
-            if src_path.exists():
-                templates[name] = read_text(src_path)
+    if not SRC_DEFAULT_TEMPLATES_DIR.is_dir():
+        raise FileNotFoundError(f"Missing defaults dir: {SRC_DEFAULT_TEMPLATES_DIR}")
+    templates: dict[str, str] = {}
+    missing: list[str] = []
+    for name in TEMPLATE_NAMES:
+        src_path = SRC_DEFAULT_TEMPLATES_DIR / name
+        if not src_path.exists():
+            missing.append(name)
+            continue
+        templates[name] = read_text(src_path)
+    if missing:
+        raise FileNotFoundError(f"Missing templates in defaults: {', '.join(missing)}")
     return templates
 
 
 def load_default_prompts() -> dict[str, str]:
-    prompts = dict(DEFAULT_PROMPTS)
-    if SRC_DEFAULT_PROMPTS_DIR.is_dir():
-        for name in DEFAULT_PROMPTS:
-            src_path = SRC_DEFAULT_PROMPTS_DIR / name
-            if src_path.exists():
-                prompts[name] = read_text(src_path)
+    if not SRC_DEFAULT_PROMPTS_DIR.is_dir():
+        raise FileNotFoundError(f"Missing defaults dir: {SRC_DEFAULT_PROMPTS_DIR}")
+    prompts: dict[str, str] = {}
+    missing: list[str] = []
+    for name in PROMPT_NAMES:
+        src_path = SRC_DEFAULT_PROMPTS_DIR / name
+        if not src_path.exists():
+            missing.append(name)
+            continue
+        prompts[name] = read_text(src_path)
+    if missing:
+        raise FileNotFoundError(f"Missing prompts in defaults: {', '.join(missing)}")
     return prompts
+
+
+def load_default_dir_readmes() -> dict[Path, str]:
+    if not SRC_DEFAULT_DIR_READMES_DIR.is_dir():
+        raise FileNotFoundError(f"Missing defaults dir: {SRC_DEFAULT_DIR_READMES_DIR}")
+    docs: dict[Path, str] = {}
+    missing: list[str] = []
+    for rel_path in DIR_README_PATHS:
+        src_path = SRC_DEFAULT_DIR_READMES_DIR / rel_path
+        if not src_path.exists():
+            missing.append(str(rel_path))
+            continue
+        docs[ATLAS_ROOT / rel_path] = read_text(src_path)
+    if missing:
+        raise FileNotFoundError(f"Missing dir READMEs in defaults: {', '.join(missing)}")
+    return docs
 
 
 def load_default_system_files() -> dict[str, str]:
@@ -751,21 +721,39 @@ def init_command(_args: argparse.Namespace) -> int:
     ]:
         ensure_dir(d)
 
+    # README files in directories - system files, no backup needed
+    for readme_path, content in load_default_dir_readmes().items():
+        if overwrite or not readme_path.exists():
+            write_text(readme_path, content)
+            if overwrite:
+                print(f"[OK] Updated {readme_path}")
+            else:
+                print(f"[OK] Created {readme_path}")
+
+    # Top docs - USER-EDITABLE, backup before overwrite
     for path, content in load_default_top_docs().items():
         if overwrite or not path.exists():
+            if overwrite and path.exists():
+                backup = backup_file(path)
+                if backup:
+                    print(f"[INFO] Backed up {path.name} to archive/")
+            
             write_text(path, content)
+            print(f"[OK] {'Updated' if overwrite else 'Created'} {path}")
 
+    # Templates - system files, no backup needed
     for name, content in load_default_templates().items():
         template_path = TEMPLATES_DIR / name
         if overwrite or not template_path.exists():
             write_text(template_path, content)
 
+    # Prompts - system files, no backup needed
     prompts_dir = SYSTEM_ROOT / "prompts"
     for name, content in load_default_prompts().items():
         prompt_path = prompts_dir / name
         if overwrite or not prompt_path.exists():
             write_text(prompt_path, content)
-            print(f"[OK] Created {prompt_path}")
+            print(f"[OK] {'Updated' if overwrite else 'Created'} {prompt_path}")
 
     for name, content in load_default_system_files().items():
         system_path = SYSTEM_ROOT / name
@@ -925,7 +913,7 @@ def extract_section_lines(text: str, heading: str) -> list[str]:
 def extract_view_references(text: str) -> set[str]:
     refs: set[str] = set()
     for line in extract_section_lines(text, "References (SSOT index)"):
-        for ref_id in REQ_REF_RE.findall(line):
+        for ref_id in SSOT_ID_RE.findall(line):
             refs.add(ref_id)
     return refs
 
@@ -942,8 +930,19 @@ def extract_view_summary_refs(text: str) -> set[str]:
 
 def extract_view_ssot_refs(text: str) -> set[str]:
     meta = extract_meta(text)
-    value = meta.get("SSOT", "")
-    return set(REQ_REF_RE.findall(value))
+    value = meta.get("Refs", "") or meta.get("SSOT", "")
+    return set(SSOT_ID_RE.findall(value))
+
+
+def ssot_path_for_id(ref_id: str) -> Optional[Path]:
+    prefix = ref_id.split("-", 1)[0]
+    if prefix == "REQ":
+        return REQ_DIR / f"{ref_id}.md"
+    if prefix == "RULE":
+        return RULE_DIR / f"{ref_id}.md"
+    if prefix == "ADR":
+        return ADR_DIR / f"{ref_id}.md"
+    return None
 
 
 def run_command(args: argparse.Namespace) -> int:
@@ -1309,31 +1308,31 @@ def doctor_command(args: argparse.Namespace) -> int:
             issues += 1
 
         if not ssot_refs:
-            print(f"[WARN] View missing SSOT meta: {path}")
+            print(f"[WARN] View missing Refs meta: {path}")
             issues += 1
 
         for ref_id in ssot_refs:
             if ref_id not in index_refs:
-                print(f"[WARN] SSOT ref not in SSOT index: {path} -> {ref_id}")
+                print(f"[WARN] Refs not in SSOT index: {path} -> {ref_id}")
                 issues += 1
-            ref_path = REQ_DIR / f"{ref_id}.md"
-            if not ref_path.exists():
-                print(f"[WARN] SSOT ref missing REQ: {path} -> {ref_id}")
+            ref_path = ssot_path_for_id(ref_id)
+            if not ref_path or not ref_path.exists():
+                print(f"[WARN] Refs missing SSOT: {path} -> {ref_id}")
                 issues += 1
 
         for ref_id in index_refs:
-            ref_path = REQ_DIR / f"{ref_id}.md"
-            if not ref_path.exists():
-                print(f"[WARN] View refs missing REQ: {path} -> {ref_id}")
+            ref_path = ssot_path_for_id(ref_id)
+            if not ref_path or not ref_path.exists():
+                print(f"[WARN] View refs missing SSOT: {path} -> {ref_id}")
                 issues += 1
 
         for ref_id in summary_refs:
             if ref_id not in index_refs:
                 print(f"[WARN] Summary ref not in SSOT index: {path} -> {ref_id}")
                 issues += 1
-            ref_path = REQ_DIR / f"{ref_id}.md"
-            if not ref_path.exists():
-                print(f"[WARN] Summary ref missing REQ: {path} -> {ref_id}")
+            ref_path = ssot_path_for_id(ref_id)
+            if not ref_path or not ref_path.exists():
+                print(f"[WARN] Summary ref missing SSOT: {path} -> {ref_id}")
                 issues += 1
 
         for line in summary_lines:
@@ -1354,8 +1353,11 @@ def doctor_command(args: argparse.Namespace) -> int:
             if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", target):
                 continue
             resolved = (path.parent / target).resolve()
-            if is_relative_to(resolved, REQ_DIR) and not resolved.exists():
-                print(f"[WARN] Broken REQ link in view: {path} -> {target}")
+            if (
+                (is_relative_to(resolved, REQ_DIR) or is_relative_to(resolved, RULE_DIR) or is_relative_to(resolved, ADR_DIR))
+                and not resolved.exists()
+            ):
+                print(f"[WARN] Broken SSOT link in view: {path} -> {target}")
                 issues += 1
 
     # REQ without any view reference

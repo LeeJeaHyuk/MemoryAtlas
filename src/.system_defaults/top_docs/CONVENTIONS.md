@@ -17,6 +17,8 @@
 ## Project Rules
 - Use `python atlas.py ...` for Atlas CLI operations.
 - After changing `src/`, rebuild the single-file CLI with `python build.py`.
+- After changing Atlas rules, regenerate `.atlas/CONVENTIONS.md` via `python build.py`.
+- Default Atlas docs must be sourced from `src/.system_defaults/` (RULE-SYS-001).
 - Keep `.atlas` top docs aligned with `src/.system_defaults/top_docs/`.
 - Use `YYYY-MM-DD` for metadata dates and update `Last Reviewed` when editing top docs.
 
