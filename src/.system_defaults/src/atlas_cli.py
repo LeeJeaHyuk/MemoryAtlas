@@ -93,6 +93,10 @@ PATCH_DIR = ATLAS_ROOT / "patch"
 # Embedded source code (populated by build.py)
 # __EMBEDDED_SRC_PLACEHOLDER__ will be replaced with base64-encoded source
 EMBEDDED_SRC_B64 = "__EMBEDDED_SRC_PLACEHOLDER__"
+# Embedded defaults bundle (populated by build.py)
+# __EMBEDDED_DEFAULTS_PLACEHOLDER__ will be replaced with base64-encoded JSON
+EMBEDDED_DEFAULTS_B64 = "__EMBEDDED_DEFAULTS_PLACEHOLDER__"
+_EMBEDDED_DEFAULTS_CACHE: Optional[dict[str, str]] = None
 
 # Checkbox patterns
 CHECKBOX_UNCHECKED = re.compile(r"^(\s*)-\s*\[\s*\](.*)$")
@@ -163,9 +167,42 @@ def backup_file(path: Path) -> Optional[Path]:
         return None
 
 
+def load_embedded_defaults() -> dict[str, str]:
+    """Decode embedded defaults bundle if present."""
+    global _EMBEDDED_DEFAULTS_CACHE
+    if _EMBEDDED_DEFAULTS_CACHE is not None:
+        return _EMBEDDED_DEFAULTS_CACHE
+    if EMBEDDED_DEFAULTS_B64 == "__EMBEDDED_DEFAULTS_PLACEHOLDER__":
+        _EMBEDDED_DEFAULTS_CACHE = {}
+        return _EMBEDDED_DEFAULTS_CACHE
+    try:
+        import base64
+
+        decoded = base64.b64decode(EMBEDDED_DEFAULTS_B64).decode("utf-8")
+        data = json.loads(decoded)
+        if isinstance(data, dict):
+            _EMBEDDED_DEFAULTS_CACHE = {str(k): str(v) for k, v in data.items()}
+            return _EMBEDDED_DEFAULTS_CACHE
+    except Exception:
+        pass
+    _EMBEDDED_DEFAULTS_CACHE = {}
+    return _EMBEDDED_DEFAULTS_CACHE
+
+
 def load_default_top_docs() -> dict[Path, str]:
+    embedded = load_embedded_defaults()
     if not SRC_DEFAULT_TOP_DOCS_DIR.is_dir():
-        raise FileNotFoundError(f"Missing defaults dir: {SRC_DEFAULT_TOP_DOCS_DIR}")
+        docs: dict[Path, str] = {}
+        missing: list[str] = []
+        for name in TOP_DOC_FILENAMES:
+            key = f"top_docs/{name}"
+            if key not in embedded:
+                missing.append(name)
+                continue
+            docs[ATLAS_ROOT / name] = embedded[key]
+        if missing:
+            raise FileNotFoundError(f"Missing top docs in defaults: {', '.join(missing)}")
+        return docs
     docs: dict[Path, str] = {}
     missing: list[str] = []
     for name in TOP_DOC_FILENAMES:
@@ -180,8 +217,19 @@ def load_default_top_docs() -> dict[Path, str]:
 
 
 def load_default_templates() -> dict[str, str]:
+    embedded = load_embedded_defaults()
     if not SRC_DEFAULT_TEMPLATES_DIR.is_dir():
-        raise FileNotFoundError(f"Missing defaults dir: {SRC_DEFAULT_TEMPLATES_DIR}")
+        templates: dict[str, str] = {}
+        missing: list[str] = []
+        for name in TEMPLATE_NAMES:
+            key = f"templates/{name}"
+            if key not in embedded:
+                missing.append(name)
+                continue
+            templates[name] = embedded[key]
+        if missing:
+            raise FileNotFoundError(f"Missing templates in defaults: {', '.join(missing)}")
+        return templates
     templates: dict[str, str] = {}
     missing: list[str] = []
     for name in TEMPLATE_NAMES:
@@ -196,8 +244,19 @@ def load_default_templates() -> dict[str, str]:
 
 
 def load_default_prompts() -> dict[str, str]:
+    embedded = load_embedded_defaults()
     if not SRC_DEFAULT_PROMPTS_DIR.is_dir():
-        raise FileNotFoundError(f"Missing defaults dir: {SRC_DEFAULT_PROMPTS_DIR}")
+        prompts: dict[str, str] = {}
+        missing: list[str] = []
+        for name in PROMPT_NAMES:
+            key = f"prompts/{name}"
+            if key not in embedded:
+                missing.append(name)
+                continue
+            prompts[name] = embedded[key]
+        if missing:
+            raise FileNotFoundError(f"Missing prompts in defaults: {', '.join(missing)}")
+        return prompts
     prompts: dict[str, str] = {}
     missing: list[str] = []
     for name in PROMPT_NAMES:
@@ -212,8 +271,19 @@ def load_default_prompts() -> dict[str, str]:
 
 
 def load_default_dir_readmes() -> dict[Path, str]:
+    embedded = load_embedded_defaults()
     if not SRC_DEFAULT_DIR_READMES_DIR.is_dir():
-        raise FileNotFoundError(f"Missing defaults dir: {SRC_DEFAULT_DIR_READMES_DIR}")
+        docs: dict[Path, str] = {}
+        missing: list[str] = []
+        for rel_path in DIR_README_PATHS:
+            key = f"dir_readmes/{rel_path.as_posix()}"
+            if key not in embedded:
+                missing.append(str(rel_path))
+                continue
+            docs[ATLAS_ROOT / rel_path] = embedded[key]
+        if missing:
+            raise FileNotFoundError(f"Missing dir READMEs in defaults: {', '.join(missing)}")
+        return docs
     docs: dict[Path, str] = {}
     missing: list[str] = []
     for rel_path in DIR_README_PATHS:
@@ -234,6 +304,10 @@ def load_default_system_files() -> dict[str, str]:
         src_path = SRC_DEFAULTS_ROOT / name
         if src_path.exists():
             files[name] = read_text(src_path)
+        else:
+            embedded = load_embedded_defaults()
+            if name in embedded:
+                files[name] = embedded[name]
     return files
 
 

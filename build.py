@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import subprocess
 import sys
@@ -17,6 +18,17 @@ def main() -> int:
     original_src = src.read_text(encoding="utf-8")
     embedded_b64 = base64.b64encode(original_src.encode("utf-8")).decode("ascii")
     print(f"Encoded source: {len(original_src)} bytes -> {len(embedded_b64)} chars base64")
+
+    defaults_root = root / "src" / ".system_defaults"
+    embedded_defaults: dict[str, str] = {}
+    if defaults_root.is_dir():
+        for path in defaults_root.rglob("*"):
+            if path.is_file():
+                rel_path = path.relative_to(defaults_root).as_posix()
+                embedded_defaults[rel_path] = path.read_text(encoding="utf-8")
+    defaults_json = json.dumps(embedded_defaults, ensure_ascii=False, sort_keys=True)
+    defaults_b64 = base64.b64encode(defaults_json.encode("utf-8")).decode("ascii")
+    print(f"Encoded defaults: {len(defaults_json)} bytes -> {len(defaults_b64)} chars base64")
 
     scripts_dir = Path(sys.executable).parent / "Scripts"
     if scripts_dir.exists():
@@ -57,6 +69,16 @@ def main() -> int:
         print(f"Embedded original source code ({len(embedded_b64)} chars)")
     else:
         sys.stderr.write("WARNING: Placeholder not found in output\n")
+
+    defaults_placeholder = '__EMBEDDED_DEFAULTS_PLACEHOLDER__'
+    if defaults_placeholder in output:
+        output = output.replace(
+            f'EMBEDDED_DEFAULTS_B64 = "{defaults_placeholder}"',
+            f'EMBEDDED_DEFAULTS_B64 = "{defaults_b64}"',
+        )
+        print(f"Embedded defaults bundle ({len(defaults_b64)} chars)")
+    else:
+        sys.stderr.write("WARNING: Defaults placeholder not found in output\n")
 
     out_path.write_text(output, encoding="utf-8")
     print(f"Wrote {out_path}")
